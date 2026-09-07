@@ -153,6 +153,11 @@ would have made and commit nothing.
 
 ## Patches
 
+A commit message is wrapped at 72 columns on the way out, paragraph by
+paragraph, leaving indented figures and the diff alone; set `MAIL_AGENT_WRAP`
+for another width. Asking for it is not enough on its own, and an agent that
+writes one long line per paragraph is common.
+
 An execute turn sends its commits as messages of their own, one per commit,
 threaded under the reply that acts as their cover letter. The diff is the body,
 so it reads in the pager and colours like a diff.

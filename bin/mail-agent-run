@@ -22,6 +22,7 @@ work="$root/work/$session"
 projects="$HOME/.config/mail-agent/projects"
 agents="$HOME/.config/mail-agent/agents"
 limit=${MAIL_AGENT_TIMEOUT:-60m}
+wrap=${MAIL_AGENT_WRAP:-72}
 fqdn=$(cat /etc/mailname 2>/dev/null || hostname -f)
 user=${MAIL_AGENT_USER:-$(id -un)}
 
@@ -213,9 +214,10 @@ into a patch and mailed back, so commit messages are part of the reply.
 Nothing else you write is delivered: an edit left uncommitted reaches
 nobody, and the working directory is not read again. Write the commit
 message as a message: one short line naming the change, then a blank
-line, then the reasoning. A first paragraph with no subject line above
-it becomes the subject, and arrives as a mail whose subject runs to a
-hundred words. Do not commit work
+line, then the reasoning, wrapped at 72 columns. A first paragraph with
+no subject line above it becomes the subject, and arrives as a mail
+whose subject runs to a hundred words. The wrapping is redone on the
+way out, so a paragraph on one long line arrives correct either way. Do not commit work
 in progress, but do commit work you have finished, even when you could
 not verify it as thoroughly as you wanted; say so in the reply instead.
 
@@ -437,8 +439,11 @@ mail_patches() {
             printf "Auto-Submitted: auto-replied\n"
 
             # format-patch writes an mbox, whose From_ line is not a
-            # header and would be read as one.
-            sed "1{/^From [0-9a-f]\{40\} /d;}" "$patch"
+            # header and would be read as one. The message is wrapped
+            # here rather than asked for: an agent that writes one long
+            # line per paragraph does it every time.
+            sed "1{/^From [0-9a-f]\{40\} /d;}" "$patch" \
+                | "$HOME/bin/mail-agent-rewrap" "$wrap"
         } | sendmail -t
     done
 
