@@ -5,6 +5,9 @@
 #
 # Bind it beside the key that deletes a thread:
 #     macro index,pager \cd "<pipe-message>mail-agent-forget-mail<enter><delete-thread>"
+#
+# Mail belonging to no thread deletes as ordinary mail, silently: every
+# message in a folder is a candidate for the key.
 
 PATH=/usr/bin:/bin:"$HOME/bin"
 
@@ -31,8 +34,7 @@ if [ -z "$session" ]; then
 fi
 
 if [ -z "$session" ]; then
-    echo "no agent thread in this message; deleting the mail only" >&2
     exit 0
 fi
 
-mail-agent-forget "$session"
+mail-agent-forget -q "$session"

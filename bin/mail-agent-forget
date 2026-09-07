@@ -3,7 +3,9 @@
 # Retire a thread: its worktree, its working directory, anything still
 # queued for it, and its transcript.
 #
-# Usage: mail-agent-forget <session> [...]
+# Usage: mail-agent-forget [-q] <session> [...]
+#
+#   -q   say nothing about a session that is not there
 #
 # The thread cannot be continued afterwards. Its commits survive only in
 # the patches already mailed.
@@ -13,22 +15,36 @@ PATH=/usr/bin:/bin
 export PATH
 
 root="$HOME/mail/.agent"
+quiet=no
+
+if [ "$1" = "-q" ]; then
+    quiet=yes
+    shift
+fi
 
 if [ -z "$1" ]; then
-    echo "usage: mail-agent-forget <session> [...]" >&2
+    echo "usage: mail-agent-forget [-q] <session> [...]" >&2
     exit 64
 fi
+
+complain() {
+    if [ "$quiet" = no ]; then
+        echo "mail-agent-forget: $1" >&2
+    fi
+}
 
 for prefix in "$@"; do
     work=$(ls -d "$root"/work/"$prefix"* 2>/dev/null | head -1)
 
     if [ -z "$work" ]; then
-        echo "mail-agent-forget: no thread $prefix" >&2
+        complain "no thread $prefix"
         continue
     fi
 
     session=$(basename "$work")
 
+    # A running thread is a refusal worth hearing even when quiet: the
+    # sender asked for it to go and it did not.
     if ! flock -n "$root/lock/$session" true 2>/dev/null; then
         echo "mail-agent-forget: $session is running" >&2
         continue
@@ -44,7 +60,7 @@ for prefix in "$@"; do
 
         if [ -d "$shared" ]; then
             git -C "$shared" worktree prune
-            git -C "$shared" branch -D "mail/$session" 2>/dev/null
+            git -C "$shared" branch -D "mail/$session" > /dev/null 2>&1
         fi
     fi
 
@@ -53,5 +69,7 @@ for prefix in "$@"; do
     rm -rf "$work" "$root/queue/$session" "$root/lock/$session"
     rm -rf "$root/$agent/projects"/*/"$session.jsonl"
 
-    echo "forgot $session"
+    if [ "$quiet" = no ]; then
+        echo "forgot $session"
+    fi
 done

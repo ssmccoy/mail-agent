@@ -29,6 +29,10 @@ macro index,pager A "<pipe-message>git-am-mail .<enter>" "apply the series here"
 macro index,pager \eA "<pipe-message>git-am-mail<enter>" "apply it where it was written"
 macro attach W "<enter-command>set pipe_decode<enter><pipe-entry>w3m -T text/html<enter><enter-command>unset pipe_decode<enter>" "read this part in w3m"
 
+# A command that succeeds has nothing to say; one that fails prints why,
+# and mutt still waits on that.
+unset wait_key
+
 # Deleting a thread retires the agent's side of it as well: the
 # worktree, anything queued, and the session itself. The mail is
 # recoverable until the mailbox is synced; the thread is not.
