@@ -24,6 +24,10 @@ set forward_format = "Fwd: %s"
 set timeout   = 15
 set beep_new  = yes
 
+# Pop a desktop notification while mutt is open. For replies that arrive
+# when mutt is closed, install the path unit as well: make notify.
+set new_mail_command = "notify-send -a mutt 'New mail: %f' '%n new'"
+
 # Apply a mailed series. pipe_decode stays off so the raw message
 # arrives with its headers; pipe_split is on so a tagged series reaches
 # git am one patch at a time, rather than being squashed into one
