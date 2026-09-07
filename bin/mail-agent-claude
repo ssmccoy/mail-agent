@@ -90,6 +90,17 @@ fi
 printf "%s\n" "$session" > "$work/agent-session"
 printf "%s\n" "$result" > "$out/reply.md"
 
+# AskUserQuestion reaches no one in a mail turn: the sender answers by
+# mail, not at a prompt. When a turn asks through it, the final message
+# is the model reacting to an unanswerable tool rather than the question,
+# so mail the questions themselves instead.
+if jq -e 'select(.type=="assistant")|.message.content[]?
+        | select(.type=="tool_use" and .name=="AskUserQuestion")' \
+        "$work/events.jsonl" > /dev/null 2>&1; then
+    jq -r -s -f "$HOME/.config/mail-agent/questions.jq" \
+        "$work/events.jsonl" > "$out/reply.md"
+fi
+
 jq -r --arg work "$work/" --arg since "" \
     -f "$HOME/.config/mail-agent/steps.jq" "$work/events.jsonl" \
     > "$out/steps.txt"
