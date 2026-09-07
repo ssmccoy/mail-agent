@@ -42,10 +42,15 @@ profile() {
     esac
 }
 
-# The thread's memory is written once as CLAUDE.md; codex reads AGENTS.md.
-if [ ! -e "$work/AGENTS.md" ]; then
-    ln -s CLAUDE.md "$work/AGENTS.md"
-fi
+# Claude finds the thread's memory by searching upward from the clone;
+# codex reads AGENTS.md from the repository and from its own home, and
+# looks nowhere else, so write it there. Both files are rewritten each
+# turn, which is what keeps an edited rule taking effect.
+{
+    cat "$HOME/.claude/CLAUDE.md" 2>/dev/null
+    printf "\n"
+    cat "$work/CLAUDE.md"
+} > "$HOME/mail/.agent/codex/AGENTS.md"
 
 if [ -f "$work/agent-session" ]; then
     set -- exec resume "$(cat "$work/agent-session")" -

@@ -22,7 +22,6 @@ work="$root/work/$session"
 projects="$HOME/.config/mail-agent/projects"
 limit=${MAIL_AGENT_TIMEOUT:-60m}
 fqdn=$(cat /etc/mailname 2>/dev/null || hostname -f)
-user=${MAIL_AGENT_USER:-$(id -un)}
 
 if [ -z "$session" ]; then
     echo "usage: mail-agent-run <session-uuid>" >&2
@@ -173,7 +172,10 @@ fetch, you cannot push, and nothing outside this directory is writable.
 
 To deliver code, commit it in repo/. Every commit you make is turned
 into a patch and mailed back, so commit messages are part of the reply.
-Do not commit work in progress.
+Nothing else you write is delivered: an edit left uncommitted reaches
+nobody, and the working directory is not read again. Do not commit work
+in progress, but do commit work you have finished, even when you could
+not verify it as thoroughly as you wanted; say so in the reply instead.
 
 Each message names a mode. In investigate and plan mode, edits are
 refused by the harness; answer with findings or a plan. In execute mode,
@@ -339,11 +341,30 @@ rm -f "$work/notified"
 printf "%s %s\n" "$started" "$(cat "$scratch/cost" 2>/dev/null || echo 0)" \
     >> "$work/cost"
 
+# An execute turn that edited without committing delivers nothing, and
+# the sender cannot see that from the reply alone.
+uncommitted=$(git -C "$work/repo" status --porcelain | head -20)
+
+if [ "$mode" = execute ] && [ -n "$uncommitted" ]; then
+    {
+        printf "\n\n---\n\n"
+        printf "The turn left these files changed but not committed, so they\n"
+        printf "are not in the patches below and were not delivered:\n\n"
+        printf "%s\n" "$uncommitted" | sed "s/^/    /"
+    } >> "$scratch/reply.md"
+fi
+
 # Patches are sent as messages rather than carried as an attachment, so
 # a diff can be read in the pager and answered under the hunk it is
 # about. mail_patches runs after the reply, which is their cover letter.
 mail_patches() {
-    if [ "$(git -C "$work/repo" rev-parse HEAD)" = "$(cat "$work/base")" ]; then
+    # The base moves to whatever was last sent, so a thread that commits
+    # on three turns mails each commit once rather than mailing the
+    # whole series again every time.
+    from=$(cat "$work/mailed" 2>/dev/null || cat "$work/base")
+    head=$(git -C "$work/repo" rev-parse HEAD)
+
+    if [ "$head" = "$from" ]; then
         return
     fi
 
@@ -351,7 +372,7 @@ mail_patches() {
         --in-reply-to="$sent" \
         --from="$(printf "%s" "$agent" | sed "s/^./\\U&/") <$user+$agent@$fqdn>" \
         --to="$(mhdr -h from "$message")" \
-        -o "$scratch/patches" "$(cat "$work/base")..HEAD"
+        -o "$scratch/patches" "$from..HEAD"
 
     for patch in "$scratch"/patches/*.patch; do
         {
@@ -365,6 +386,8 @@ mail_patches() {
             sed "1{/^From [0-9a-f]\{40\} /d;}" "$patch"
         } | sendmail -t
     done
+
+    printf "%s\n" "$head" > "$work/mailed"
 }
 
 # A plan is a document the sender asked for, so it travels with the
