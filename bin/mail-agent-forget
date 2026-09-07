@@ -1,0 +1,57 @@
+#!/bin/sh
+#
+# Retire a thread: its worktree, its working directory, anything still
+# queued for it, and its transcript.
+#
+# Usage: mail-agent-forget <session> [...]
+#
+# The thread cannot be continued afterwards. Its commits survive only in
+# the patches already mailed.
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+root="$HOME/mail/.agent"
+
+if [ -z "$1" ]; then
+    echo "usage: mail-agent-forget <session> [...]" >&2
+    exit 64
+fi
+
+for prefix in "$@"; do
+    work=$(ls -d "$root"/work/"$prefix"* 2>/dev/null | head -1)
+
+    if [ -z "$work" ]; then
+        echo "mail-agent-forget: no thread $prefix" >&2
+        continue
+    fi
+
+    session=$(basename "$work")
+
+    if ! flock -n "$root/lock/$session" true 2>/dev/null; then
+        echo "mail-agent-forget: $session is running" >&2
+        continue
+    fi
+
+    # A worktree is registered with the clone it came from, so removing
+    # the directory alone leaves the registration behind.
+    if [ -f "$work/repo/.git" ]; then
+        shared=$(sed -n "s/^gitdir: //p" "$work/repo/.git" | sed "s|/worktrees/.*||")
+
+        git -C "$work/repo" worktree remove --force "$work/repo" 2>/dev/null ||
+            rm -rf "$work/repo"
+
+        if [ -d "$shared" ]; then
+            git -C "$shared" worktree prune
+            git -C "$shared" branch -D "mail/$session" 2>/dev/null
+        fi
+    fi
+
+    agent=$(cat "$work/agent" 2>/dev/null || echo claude)
+
+    rm -rf "$work" "$root/queue/$session" "$root/lock/$session"
+    rm -rf "$root/$agent/projects"/*/"$session.jsonl"
+
+    echo "forgot $session"
+done

@@ -39,6 +39,12 @@ project_key() {
         | tr -d "[:space:]"
 }
 
+# One shared clone per repository, named for the path it came from.
+shared_clone() {
+    printf "%s/repos/%s\n" "$root" \
+        "$(printf "%s" "$1" | sed -e "s|^/||" -e "s|/|-|g")"
+}
+
 project_repo() {
     awk -v key="$1" '$1 == key { print $2; exit }' "$projects"
 }
@@ -137,23 +143,46 @@ if [ ! -d "$work" ]; then
     printf "%s\n" "$(mhdr -h x-mail-agent "$message")" > "$work/agent"
     mhdr -h subject "$message" > "$work/subject"
 
-    branch=$(message_branch "$message")
+    # One clone per repository, shared by every thread on it, with a
+    # worktree apiece. A clone of its own costs each thread the whole
+    # object store to hold a checkout a fraction of its size.
+    shared=$(shared_clone "$repo")
 
-    if [ -n "$branch" ]; then
-        if ! git clone --no-hardlinks --quiet --branch "$branch" \
-                "$repo" "$work/repo"; then
-            printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
-                > "$scratch/body"
-
-            reply "$scratch/body" "$message"
-            rm -rf "$work"
-            rm -f "$message"
-            exit 0
-        fi
-    else
-        git clone --no-hardlinks --quiet "$repo" "$work/repo"
+    if [ ! -d "$shared" ]; then
+        git clone --quiet --bare "$repo" "$shared"
+        git -C "$shared" config remote.origin.fetch \
+            "+refs/heads/*:refs/remotes/origin/*"
     fi
 
+    # A bare clone has no remote-tracking refs until it fetches, and no
+    # default branch recorded until those exist.
+    git -C "$shared" fetch --quiet --prune origin
+    git -C "$shared" remote set-head origin --auto > /dev/null 2>&1
+
+    branch=$(message_branch "$message")
+
+    if [ -z "$branch" ]; then
+        branch=$(git -C "$shared" symbolic-ref --short refs/remotes/origin/HEAD \
+            2>/dev/null | sed "s|^origin/||")
+    fi
+
+    if ! git -C "$shared" rev-parse --verify --quiet \
+            "refs/remotes/origin/$branch" > /dev/null; then
+        printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
+            > "$scratch/body"
+
+        reply "$scratch/body" "$message"
+        rm -rf "$work"
+        rm -f "$message"
+        exit 0
+    fi
+
+    # The thread commits on a branch of its own, named for the session,
+    # so two threads on one branch do not contend for it.
+    git -C "$shared" worktree add --quiet -b "mail/$session" \
+        "$work/repo" "origin/$branch"
+
+    printf "%s\n" "$branch" > "$work/branch"
     git -C "$work/repo" rev-parse HEAD > "$work/base"
 
     cat > "$work/CLAUDE.md" <<RULES
@@ -229,11 +258,16 @@ export MAIL_AGENT
 # moves with it, so a series is always measured from the branch tip the
 # work started on rather than from wherever the thread began.
 branch=$(message_branch "$message")
-current=$(git -C "$work/repo" rev-parse --abbrev-ref HEAD)
+current=$(cat "$work/branch" 2>/dev/null)
+shared=$(shared_clone "$repo")
 
 if [ -n "$branch" ] && [ "$branch" != "$current" ]; then
-    if git -C "$work/repo" fetch --quiet origin "$branch" &&
-       git -C "$work/repo" checkout --quiet -B "$branch" FETCH_HEAD; then
+    if git -C "$shared" fetch --quiet origin \
+            "+refs/heads/$branch:refs/remotes/origin/$branch" &&
+       git -C "$work/repo" checkout --quiet -B "mail/$session" \
+            "origin/$branch"; then
+        printf "%s\n" "$branch" > "$work/branch"
+        rm -f "$work/mailed"
         git -C "$work/repo" rev-parse HEAD > "$work/base"
     else
         printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
