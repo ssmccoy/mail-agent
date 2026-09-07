@@ -62,9 +62,28 @@ if [ ! -s "$series" ]; then
     exit 65
 fi
 
-expected=$repo
+expected=$(mhdr -h x-mail-repo "$message" | head -1)
 
-if [ -n "$expected" ] && [ "$expected" != "$repo" ]; then
+if [ -z "$expected" ]; then
+    expected=$(mhdr -h x-claude-repo "$message" | head -1)
+fi
+
+# Applying a series to a repository that has never held the file it
+# patches is always a mistake, and git am says so in terms that describe
+# a corrupt patch rather than the wrong tree. The blob the patch is
+# written against settles which repository this is.
+if [ -n "$expected" ] &&
+   [ "$expected" != "$repo" ] &&
+   [ "$(readlink -f "$expected")" != "$(readlink -f "$repo")" ]; then
+    before=$(sed -n "s/^index \([0-9a-f]\{7,\}\)\.\..*/\1/p" "$series" | head -1)
+
+    if [ -n "$before" ] && ! git -C "$repo" cat-file -e "$before" 2>/dev/null; then
+        echo "git-am-mail: $repo is not the tree this series was written" >&2
+        echo "against, which was $expected." >&2
+        echo "Press esc-A to apply it there, or run mutt from that tree." >&2
+        exit 65
+    fi
+
     echo "note: the series was written against $expected"
 fi
 
