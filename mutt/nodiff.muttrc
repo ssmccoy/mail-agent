@@ -1,0 +1,8 @@
+# The counterpart to diff.muttrc: drop exactly those patterns again, so
+# ordinary mail keeps the body colours defined in colors.muttrc.
+
+uncolor body "^\\+.*"
+uncolor body "^-.*"
+uncolor body "^@@ .*"
+uncolor body "^(diff --git|index|---|\\+\\+\\+) .*"
+uncolor body "^ [0-9]+ (insertion|deletion|file)"

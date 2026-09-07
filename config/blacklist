@@ -1,0 +1,54 @@
+# Words that mark text as written by Claude.
+#
+# Taken from the lead component of the analysis at
+# https://louisabraham.github.io/load-bearing/, which measures the
+# vocabulary that separates Claude-authored writing from everything
+# else. That component rose from 0.9% of the corpus to 37% over 86
+# weeks; the words below are its highest-lift entries, less the ones
+# that are ordinary English or necessary technical terms.
+#
+# A word here is not forbidden where it is literally true: a lever is a
+# lever, and a byte-identical file is byte-identical. It is forbidden as
+# metaphor, which is how it is nearly always reached for.
+
+# Objects doing things they cannot do
+carry carries carried carrying holds hold held holding rides riding
+rests resting sits sitting sat stands standing stood lands landed
+lives lived walks walked buys earns pays owes owed spends
+arms armed wedged wedge parked parks painted paints repaint
+folded folds threw froze bites teeth swallowed swallows absorbs
+planted stashed stamped stamps minted mints reddens papered
+snapped wiped burned killed kills died dies vanished vanishes
+stranded strand drained drains chasing feeds fed
+
+# Structure by metaphor
+shape shaped seam seams spine ladder rung legs wall fence corridor
+rail shelf machinery chokepoint choke gauntlet tripwire backstop
+knob lever levers ratchet affordance headroom carve-out surface
+surfaced framing framed reframing load-bearing
+
+# Adverbs asserting sincerity
+plainly quietly genuinely deliberately precisely merely legitimately
+honestly faithfully demonstrably provably vacuously structurally
+mechanically empirically silently visibly literally routinely wrongly
+
+# The courtroom
+premise ruling ruled rulings verdict verdicts refusal refusals
+refused refuses refusing asserted asserts argued argues disagreed
+disagrees disagreement contradicted contradicts contradiction refuted
+cites cited citing precedent sanctioned ratified judged judgement
+admits obligation honest honesty honour honoured honours grounds
+grounded defensible moot exemption
+
+# Coinages by hyphen
+byte-identical bit-identical byte-exact bit-exact byte-for-byte
+pixel-identical near-identical re-derived re-derive re-verified
+re-checked re-read re-measured mutation-checked mutation-verified
+root-caused hand-rolled hand-written hand-built hand-authored
+live-verified spot-checked cross-checked mid-flight mid-turn mid-run
+mid-session mid-stream back-to-back dead-end stand-in throwaway
+steady-state no-op fan-out
+
+# Nouns for things that are not there
+symptom remedy hazard payoff census tally roster corpus idiom glyph
+blip hiccup residue residual asymmetry

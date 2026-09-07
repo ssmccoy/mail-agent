@@ -1,0 +1,15 @@
+# Subject prefixes the mail agent will accept, and the repository each
+# one resolves to. The first word of the subject, up to the first colon,
+# selects the row; the repository is passed to landlock read-only and
+# cloned into the thread's working directory.
+#
+# key                   repository
+
+foundry                 /home/you/code/example/foundry
+cloud-foundations       /home/you/code/example/cloud-foundations
+fabric-solver           /home/you/code/example/fabric-solver
+gitops                  /home/you/code/example/gitops
+net-tools               /home/you/code/example/net-tools
+network-artifacts       /home/you/code/example/network-artifacts
+systems                 /home/you/code/example/systems
+dotfiles                /home/you

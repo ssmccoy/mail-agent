@@ -1,0 +1,6 @@
+# Put this in ~/.mailcap, before the system one: its first text/html
+# entry launches a browser, which is not what a terminal reader wants.
+
+text/markdown; pandoc -f gfm -t html %s | w3m -dump -T text/html -o display_borders=1 -I %{charset} -O utf-8; copiousoutput; description=Markdown text
+text/html; w3m -dump -T text/html -I %{charset} -O utf-8 %s; copiousoutput; description=HTML text
+application/mbox; cat %s; copiousoutput; description=patch series

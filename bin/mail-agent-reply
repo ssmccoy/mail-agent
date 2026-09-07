@@ -1,0 +1,51 @@
+#!/bin/sh
+#
+# Send a reply into a thread and print the Message-Id it went out under,
+# so a caller can thread further messages beneath it.
+#
+# Usage: mail-agent-reply <session> <incoming message> <body file>
+#
+# The body is mmime(1) input: text, with #type lines for any parts.
+
+PATH=/usr/bin:/bin:/usr/sbin
+
+export PATH
+
+session=$1
+incoming=$2
+body=$3
+
+if [ -z "$body" ]; then
+    echo "usage: mail-agent-reply <session> <incoming> <body>" >&2
+    exit 64
+fi
+
+fqdn=$(cat /etc/mailname 2>/dev/null || hostname -f)
+agent=${MAIL_AGENT:-claude}
+user=${MAIL_AGENT_USER:-$(id -un)}
+name=$(printf "%s" "$agent" | sed "s/^./\U&/")
+sent="<c.$session.$(date +%s%N)@$fqdn>"
+
+{
+    printf "To: %s\n" "$(mhdr -h from "$incoming")"
+    printf "From: %s <%s+%s@%s>\n" "$name" "$user" "$agent" "$fqdn"
+    printf "Subject: Re: %s\n" "$(mhdr -h subject "$incoming")"
+    printf "In-Reply-To: %s\n" "$(mhdr -h message-id "$incoming")"
+    printf "References: %s %s\n" \
+        "$(mhdr -h references "$incoming")" \
+        "$(mhdr -h message-id "$incoming")"
+    printf "Message-Id: %s\n" "$sent"
+    printf "X-Mail-Agent: %s\n" "$agent"
+    printf "X-Mail-Session: %s\n" "$session"
+
+    if [ -n "$MAIL_AGENT_REPO" ]; then
+        printf "X-Mail-Repo: %s\n" "$MAIL_AGENT_REPO"
+    fi
+
+    printf "Auto-Submitted: auto-replied\n"
+    printf "\n"
+
+    cat "$body"
+} | mmime | sendmail -t
+
+printf "%s\n" "$sent"

@@ -1,0 +1,84 @@
+#!/bin/sh
+#
+# Follow a thread's activity as it happens: one line per step, with
+# reasoning, tool calls and the size of what each returned.
+#
+# Usage: mail-agent-follow [-1] [session]
+#
+#   -1        print what has happened and stop, rather than following
+#   session   a session id or any prefix of one; with none, the thread
+#             that is currently running, when only one is
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+agent="$HOME/mail/.agent"
+config="$agent/claude"
+follow=yes
+
+if [ "$1" = "-1" ]; then
+    follow=no
+    shift
+fi
+
+running() {
+    for lock in "$agent"/lock/*; do
+        if [ -e "$lock" ] && ! flock -n "$lock" true 2>/dev/null; then
+            basename "$lock"
+        fi
+    done
+}
+
+session=$1
+
+if [ -z "$session" ]; then
+    session=$(running)
+
+    if [ -z "$session" ]; then
+        echo "mail-agent-follow: nothing is running; name a session" >&2
+        exit 66
+    fi
+
+    if [ "$(echo "$session" | wc -l)" -gt 1 ]; then
+        echo "mail-agent-follow: more than one thread is running:" >&2
+        echo "$session" >&2
+        exit 66
+    fi
+fi
+
+work=$(ls -d "$agent"/work/"$session"* 2>/dev/null | head -1)
+
+if [ -z "$work" ]; then
+    echo "mail-agent-follow: no thread $session" >&2
+    exit 66
+fi
+
+session=$(basename "$work")
+name=$(cat "$work/agent" 2>/dev/null)
+records="$work/events.jsonl"
+
+# A turn that began before the stream was kept, and any turn of an
+# older thread, is still in Claude's own transcript.
+if [ ! -f "$records" ] && [ "$name" != codex ]; then
+    records=$(ls "$agent"/claude/projects/*/"$session.jsonl" 2>/dev/null | head -1)
+fi
+
+if [ -z "$records" ] || [ ! -f "$records" ]; then
+    echo "mail-agent-follow: no turn recorded for $session" >&2
+    exit 66
+fi
+
+# Each agent's events have their own shapes; the lines they make do not.
+if [ "$name" = codex ]; then
+    steps="$HOME/.config/mail-agent/steps-codex.jq"
+else
+    steps="$HOME/.config/mail-agent/steps.jq"
+fi
+
+if [ "$follow" = no ]; then
+    jq -r --arg work "$work/" --arg since "" -f "$steps" < "$records"
+else
+    tail -n +1 -f "$records" |
+        jq -r --unbuffered --arg work "$work/" --arg since "" -f "$steps"
+fi

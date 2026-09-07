@@ -1,0 +1,73 @@
+#!/bin/sh
+#
+# Apply a patch series mailed by the agent. Reads the raw message on
+# standard input, as mutt's pipe-message supplies it.
+#
+# The repository is the argument if given, otherwise the one the agent
+# named in X-Mail-Repo, otherwise the working directory. Passing "."
+# applies to wherever mutt was started, which is the useful default when
+# mutt is run from the project directory; any subdirectory of the tree
+# works, since git resolves it upwards.
+#
+# Bind it in muttrc:
+#     macro index,pager A "<pipe-message>git-am-mail .<enter>" "git am"
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+message=$(mktemp)
+series=$(mktemp)
+
+trap 'rm -f "$message" "$series"' EXIT
+
+cat > "$message"
+
+repo=$1
+
+if [ -z "$repo" ]; then
+    repo=$(mhdr -h x-mail-repo "$message" | head -1)
+
+    if [ -z "$repo" ]; then
+        repo=$(mhdr -h x-claude-repo "$message" | head -1)
+    fi
+fi
+
+if [ -z "$repo" ]; then
+    repo=$PWD
+fi
+
+toplevel=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)
+
+if [ -z "$toplevel" ]; then
+    echo "git-am-mail: $repo is not a repository" >&2
+    exit 66
+fi
+
+repo=$toplevel
+
+part=$(mshow -t "$message" | sed -n 's/^ *\([0-9]*\):.*patches\.mbox.*/\1/p')
+
+# Delivery to an mbox escapes a body line starting with "From ", which
+# is every patch header in the series. Maildir delivery does not, so the
+# substitution is a no-op there.
+if [ -n "$part" ]; then
+    mshow -O "$message" "$part" < /dev/null | sed "s/^>From /From /" > "$series"
+else
+    sed "s/^>From /From /" "$message" > "$series"
+fi
+
+if [ ! -s "$series" ]; then
+    echo "git-am-mail: no patches in this message" >&2
+    exit 65
+fi
+
+expected=$repo
+
+if [ -n "$expected" ] && [ "$expected" != "$repo" ]; then
+    echo "note: the series was written against $expected"
+fi
+
+echo "applying \"$(mhdr -h subject "$message")\" to $repo"
+
+git -C "$repo" am -3 "$series"

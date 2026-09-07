@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+//
+// Summarise what a turn cost, from the result object the CLI prints and
+// the records it wrote, as a small HTML table.
+//
+// Usage: mail-agent-usage <result.json> <transcript.jsonl> <since>
+//                           [ledger]
+//
+// The ledger is a line per turn, "<timestamp> <cost>", written by the
+// worker; it is what makes a thread's running total available, since
+// each run only reports what it spent itself.
+
+"use strict";
+
+const fs = require("fs");
+
+function count(value) {
+    return Number(value || 0).toLocaleString("en-US");
+}
+
+function cost(value) {
+    const amount = Number(value || 0);
+
+    return amount < 0.01 && amount > 0 ?
+        `$${amount.toFixed(4)}` : `$${amount.toFixed(2)}`;
+}
+
+function seconds(value) {
+    return `${(Number(value || 0) / 1000).toFixed(1)}s`;
+}
+
+function escape(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+function row(cells, tag) {
+    const element = tag || "td";
+
+    return "<tr>" + cells
+        .map((cell, column) => `<${element}${column ? ' class="n"' : ""}>` +
+            `${escape(cell)}</${element}>`)
+        .join("") + "</tr>\n";
+}
+
+function models(usage) {
+    const names = Object.keys(usage || {});
+    const total = {input: 0, output: 0, read: 0, write: 0, think: 0, cost: 0};
+
+    const rows = names.map((name) => {
+        const model = usage[name];
+
+        total.input += model.inputTokens || 0;
+        total.output += model.outputTokens || 0;
+        total.read += model.cacheReadInputTokens || 0;
+        total.write += model.cacheCreationInputTokens || 0;
+        total.think += model.thinkingTokens || 0;
+        total.cost += model.costUSD || 0;
+
+        return row([
+            model.canonicalModel || name,
+            count(model.inputTokens),
+            count(model.outputTokens),
+            count(model.thinkingTokens),
+            count(model.cacheReadInputTokens),
+            count(model.cacheCreationInputTokens),
+            cost(model.costUSD),
+        ]);
+    });
+
+    if (names.length > 1) {
+        rows.push(row([
+            "total",
+            count(total.input),
+            count(total.output),
+            count(total.think),
+            count(total.read),
+            count(total.write),
+            cost(total.cost),
+        ], "th"));
+    }
+
+    return rows.join("");
+}
+
+function tools(transcript, since) {
+    const counts = new Map();
+
+    for (const line of transcript.split("\n")) {
+        if (line.length === 0) {
+            continue;
+        }
+
+        const record = JSON.parse(line);
+
+        if (record.type !== "assistant" || record.timestamp < since) {
+            continue;
+        }
+
+        const content = record.message && record.message.content;
+
+        for (const block of Array.isArray(content) ? content : []) {
+            if (block.type === "tool_use") {
+                counts.set(block.name, (counts.get(block.name) || 0) + 1);
+            }
+        }
+    }
+
+    return [...counts.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .map(([name, calls]) => `${name} ${calls}`)
+        .join(", ");
+}
+
+function ledger(path) {
+    if (!path || !fs.existsSync(path)) {
+        return null;
+    }
+
+    const turns = fs.readFileSync(path, "utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+
+    return {
+        turns: turns.length,
+        cost: turns.reduce((total, line) =>
+            total + Number(line.split(/\s+/)[1] || 0), 0),
+    };
+}
+
+const [, , resultPath, transcriptPath, since, ledgerPath] = process.argv;
+
+if (!resultPath) {
+    process.stderr.write("usage: mail-agent-usage <result> <transcript> <since>\n");
+    process.exit(64);
+}
+
+const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+
+const transcript = transcriptPath && fs.existsSync(transcriptPath) ?
+    fs.readFileSync(transcriptPath, "utf8") : "";
+
+const subagents = result.subagent_stats || {};
+const calls = tools(transcript, since || "");
+
+const session = ledger(ledgerPath);
+
+const facts = [
+    ["session so far", session ?
+        `${cost(session.cost)} over ${count(session.turns)} ` +
+            `${session.turns === 1 ? "turn" : "turns"}` :
+        cost(result.total_cost_usd)],
+    ["wall clock", seconds(result.duration_ms)],
+    ["api time", seconds(result.duration_api_ms)],
+    ["assistant turns", count(result.num_turns)],
+    ["tool calls", calls || "none"],
+    ["subagents", subagents.spawned ?
+        `${count(subagents.spawned)} spawned, ${count(subagents.completed)} completed` :
+        "none"],
+    ["permission denials", count((result.permission_denials || []).length)],
+    ["session", result.session_id || ""],
+];
+
+process.stdout.write(`<!doctype html>
+<meta charset="utf-8">
+<title>Turn cost</title>
+<style>
+body { font: 14px/1.5 ui-monospace, monospace; margin: 1.5rem; color: #222; }
+table { border-collapse: collapse; margin-bottom: 1.5rem; }
+th, td { padding: .25rem .75rem; border-bottom: 1px solid #ddd; text-align: left; }
+th { font-weight: normal; color: #555; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+caption { text-align: left; font-weight: bold; padding-bottom: .4rem; }
+</style>
+<table>
+<caption>${cost(result.total_cost_usd)} this turn</caption>
+${row(["model", "in", "out", "thinking", "cache read", "cache write", "cost"], "th")}
+${models(result.modelUsage)}
+</table>
+<table>
+${facts.map(([name, value]) => row([name, value])).join("")}
+</table>
+`);

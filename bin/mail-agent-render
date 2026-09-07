@@ -1,0 +1,223 @@
+#!/usr/bin/env node
+//
+// Render one turn of a session transcript as HTML: the reasoning, every
+// tool call, and each result, in the order they happened.
+//
+// Usage: mail-agent-render <transcript.jsonl> <since-timestamp>
+
+"use strict";
+
+const fs = require("fs");
+
+const LIMIT = 4000;
+
+function escape(text) {
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function clip(text) {
+    const body = typeof text === "string" ? text : JSON.stringify(text, null, 2);
+
+    if (body.length <= LIMIT) {
+        return escape(body);
+    }
+
+    return escape(body.slice(0, LIMIT)) +
+        `\n\n[${body.length - LIMIT} more characters omitted]`;
+}
+
+function textOf(content) {
+    if (typeof content === "string") {
+        return content;
+    }
+
+    if (Array.isArray(content)) {
+        return content
+            .map((block) => block.text || JSON.stringify(block))
+            .join("\n");
+    }
+
+    return JSON.stringify(content, null, 2);
+}
+
+function flatten(content) {
+    if (typeof content === "string") {
+        return [{type: "text", text: content}];
+    }
+
+    return Array.isArray(content) ? content : [];
+}
+
+function section(kind, summary, body, open) {
+    return `<details class="${kind}"${open ? " open" : ""}>` +
+        `<summary>${escape(summary)}</summary>` +
+        `<pre>${body}</pre></details>\n`;
+}
+
+function prose(text) {
+    return String(text)
+        .split(/\n{2,}/)
+        .map((paragraph) => `<p>${escape(paragraph)}</p>`)
+        .join("\n");
+}
+
+// One line per tool, in the notation the tool itself uses: a shell
+// prompt for a command, a path for a file, a pattern for a search.
+function shell(input) {
+    return "> " + String(input.command || "").replace(/\n/g, "\n> ");
+}
+
+function edit(input) {
+    return `edit ${input.file_path}\n\n` +
+        String(input.old_string || "").replace(/^/gm, "-") + "\n" +
+        String(input.new_string || "").replace(/^/gm, "+");
+}
+
+function write(input) {
+    return `write ${input.file_path}\n\n${input.content || ""}`;
+}
+
+function read(input) {
+    const span = input.offset ?
+        ` +${input.offset},${input.limit || ""}` : "";
+
+    return `read ${input.file_path}${span}`;
+}
+
+function grep(input) {
+    return `grep ${input.pattern} ${input.path || "."}`;
+}
+
+function glob(input) {
+    return `glob ${input.pattern}`;
+}
+
+function agent(input) {
+    return `agent ${input.subagent_type || "general"}: ` +
+        `${input.description || ""}\n\n${input.prompt || ""}`;
+}
+
+function fetch(input) {
+    return `fetch ${input.url || input.query || ""}`;
+}
+
+const FORMAT = {
+    Bash: shell,
+    Edit: edit,
+    Write: write,
+    Read: read,
+    Grep: grep,
+    Glob: glob,
+    Agent: agent,
+    Task: agent,
+    WebFetch: fetch,
+    WebSearch: fetch,
+};
+
+function call(name, input) {
+    const format = FORMAT[name];
+
+    if (format) {
+        return format(input);
+    }
+
+    return `${name} ${JSON.stringify(input)}`;
+}
+
+function label(name, input) {
+    if (name === "Bash" && input.description) {
+        return input.description;
+    }
+
+    if (input.file_path) {
+        return `${name} ${input.file_path.replace(/^.*\//, "")}`;
+    }
+
+    return name;
+}
+
+function render(records) {
+    const results = new Map();
+    const parts = [];
+
+    for (const record of records) {
+        for (const block of flatten(record.message && record.message.content)) {
+            if (block.type === "tool_result") {
+                results.set(block.tool_use_id, block.content);
+            }
+        }
+    }
+
+    for (const record of records) {
+        if (record.type !== "assistant") {
+            continue;
+        }
+
+        const mark = record.isSidechain ? "subagent " : "";
+
+        for (const block of flatten(record.message.content)) {
+            if (block.type === "thinking") {
+                if (!block.thinking) {
+                    continue;
+                }
+
+                parts.push(`<div class="thought">${prose(block.thinking)}</div>\n`);
+            } else if (block.type === "text") {
+                parts.push(`<div class="say">${prose(block.text)}</div>\n`);
+            } else if (block.type === "tool_use") {
+                const result = results.get(block.id);
+
+                parts.push(`<div class="call">` +
+                    `<pre class="cmd">${clip(call(block.name, block.input))}</pre>` +
+                    (result === undefined ? "" :
+                        section("result", `${mark}${label(block.name, block.input)}`,
+                            clip(textOf(result)))) +
+                    `</div>\n`);
+            }
+        }
+    }
+
+    return parts;
+}
+
+const [, , path, since] = process.argv;
+
+if (!path) {
+    process.stderr.write("usage: mail-agent-render <records> [since]\n");
+    process.exit(64);
+}
+
+const records = fs.readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line))
+    .filter((record) => !since || (record.timestamp || "") >= since);
+
+const calls = records.reduce((count, record) => count +
+    flatten(record.message && record.message.content)
+        .filter((block) => block.type === "tool_use").length, 0);
+
+process.stdout.write(`<!doctype html>
+<meta charset="utf-8">
+<title>Turn transcript</title>
+<style>
+body { font: 15px/1.6 Georgia, serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+h1 { font-size: 1.3rem; }
+p { margin: .6rem 0; }
+pre { font: 13px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.thought { color: #444; }
+.say { border-left: 3px solid #3c763d; padding-left: .75rem; }
+.call { margin: 1rem 0; }
+.cmd { background: #f4f4f4; border-left: 3px solid #31708f; padding: .5rem .75rem; margin: 0; }
+details.result { margin-left: .75rem; }
+details.result summary { font-size: 13px; color: #666; cursor: pointer; padding: .2rem 0; }
+details.result pre { background: #fafafa; padding: .4rem .75rem; color: #333; }
+.meta { color: #777; font-size: 13px; }
+</style>
+<h1>Turn transcript</h1>
+<p class="meta">${escape(records.length)} records, ${escape(calls)} tool calls</p>
+${render(records).join("")}
+`);

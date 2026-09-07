@@ -1,0 +1,115 @@
+#!/bin/sh
+#
+# Run one turn of a mail thread with codex and write what the harness
+# needs to compose a reply.
+#
+# Usage: mail-agent-codex <work> <out> <prompt> <mode>
+#
+# The interface matches mail-agent-claude: the session lives in
+# <work>/agent-session, the outputs land in <out>, and the exit status
+# says whether a retry is worth anything.
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+work=$1
+out=$2
+prompt=$3
+mode=$4
+
+if [ -z "$mode" ]; then
+    echo "usage: mail-agent-codex <work> <out> <prompt> <mode>" >&2
+    exit 64
+fi
+
+limit=${MAIL_AGENT_TIMEOUT:-60m}
+repo=$(cat "$work/project")
+
+# The final message is written by codex itself, so it has to land
+# somewhere the sandbox can write: the harness scratch directory is
+# outside it.
+last=/tmp/mail-agent/reply-$$.md
+
+# codex's own sandbox cannot initialise inside landlock's, so landlock
+# is the only one, and the distinction between a turn that may write and
+# one that may not is drawn there: the clone is mounted rox rather than
+# rwx for the modes that refuse edits.
+profile() {
+    case $1 in
+        execute) echo mail-agent-codex ;;
+        *)       echo mail-agent-codex-ro ;;
+    esac
+}
+
+# The thread's memory is written once as CLAUDE.md; codex reads AGENTS.md.
+if [ ! -e "$work/AGENTS.md" ]; then
+    ln -s CLAUDE.md "$work/AGENTS.md"
+fi
+
+if [ -f "$work/agent-session" ]; then
+    set -- exec resume "$(cat "$work/agent-session")" -
+else
+    set -- exec
+fi
+
+(
+    cd "$work/repo" || exit 70
+
+    PATH=/usr/bin timeout "$limit" "$HOME/bin/landlock" \
+        -c "$HOME/.config/landlock/$(profile "$mode").cfg" -r "$repo" \
+        "$HOME/.local/bin/codex" "$@" --json -o "$last" \
+        --dangerously-bypass-approvals-and-sandbox \
+        --skip-git-repo-check < "$prompt"
+) > "$work/events.jsonl" 2> "$out/stderr"
+
+status=$?
+
+if [ "$status" -eq 124 ]; then
+    exit 124
+fi
+
+if [ "$status" -ne 0 ]; then
+    tail -5 "$out/stderr" >&2
+    exit 75
+fi
+
+if [ ! -s "$last" ]; then
+    echo "codex wrote no final message" >&2
+    tail -3 "$out/stderr" >&2
+    exit 75
+fi
+
+mv "$last" "$out/reply.md"
+
+jq -r 'select(.type=="thread.started")|.thread_id' "$work/events.jsonl" \
+    | tail -1 > "$out/thread"
+
+if [ -s "$out/thread" ]; then
+    cp "$out/thread" "$work/agent-session"
+fi
+
+jq -r --arg work "$work/" -f "$HOME/.config/mail-agent/steps-codex.jq" \
+    "$work/events.jsonl" > "$out/steps.txt"
+
+# codex reports tokens rather than money, so the table counts tokens.
+jq -rs --arg session "$(cat "$work/agent-session")" '
+    (map(select(.type=="turn.completed"))|last.usage) as $usage
+    | (map(select(.type=="item.completed"))|length) as $items
+    | "<!doctype html><meta charset=\"utf-8\"><title>Turn cost</title>"
+    + "<style>body{font:14px/1.5 ui-monospace,monospace;margin:1.5rem}"
+    + "table{border-collapse:collapse}td,th{padding:.25rem .75rem;"
+    + "border-bottom:1px solid #ddd;text-align:left}"
+    + "td.n{text-align:right;font-variant-numeric:tabular-nums}</style>"
+    + "<table>"
+    + "<tr><td>input</td><td class=\"n\">\($usage.input_tokens)</td></tr>"
+    + "<tr><td>cached input</td><td class=\"n\">\($usage.cached_input_tokens)</td></tr>"
+    + "<tr><td>output</td><td class=\"n\">\($usage.output_tokens)</td></tr>"
+    + "<tr><td>reasoning</td><td class=\"n\">\($usage.reasoning_output_tokens)</td></tr>"
+    + "<tr><td>items</td><td class=\"n\">\($items)</td></tr>"
+    + "<tr><td>thread</td><td class=\"n\">\($session)</td></tr>"
+    + "</table>"' "$work/events.jsonl" > "$out/usage.html"
+
+# Tokens are what codex reports, so the ledger counts turns at zero cost
+# rather than inventing a price for them.
+printf "0\n" > "$out/cost"

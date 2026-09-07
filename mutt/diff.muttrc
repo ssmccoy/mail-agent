@@ -1,0 +1,9 @@
+# Diff colouring, sourced by a message-hook for patch mail only. Applied
+# everywhere, these would paint every markdown bullet as a removal and
+# every signature dash red.
+
+color body        color28  default "^\\+.*"
+color body        color196 default "^-.*"
+color body        color62  default "^@@ .*"
+color body        brightcolor94 default "^(diff --git|index|---|\\+\\+\\+) .*"
+color body        color245 default "^ [0-9]+ (insertion|deletion|file)"

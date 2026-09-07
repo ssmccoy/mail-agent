@@ -1,0 +1,100 @@
+#!/bin/sh
+#
+# List the agent's threads: what is running now, what is waiting for a
+# turn to finish, and what is merely on disk from an earlier exchange.
+#
+# A thread is running when its lock is held, which is the same condition
+# the worker uses to serialise turns.
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+agent="$HOME/mail/.agent"
+now=$(date +%s)
+
+age() {
+    if [ ! -e "$1" ]; then
+        echo "-"
+        return
+    fi
+
+    seconds=$((now - $(stat -c %Y "$1")))
+
+    if [ "$seconds" -lt 3600 ]; then
+        echo "$((seconds / 60))m"
+    elif [ "$seconds" -lt 86400 ]; then
+        echo "$((seconds / 3600))h"
+    else
+        echo "$((seconds / 86400))d"
+    fi
+}
+
+state() {
+    if ! flock -n "$agent/lock/$1" true 2>/dev/null; then
+        echo running
+    elif [ -n "$(ls -A "$agent/queue/$1" 2>/dev/null)" ]; then
+        echo queued
+    else
+        echo idle
+    fi
+}
+
+printf "%-8s %-6s %-8s %5s %5s %8s  %s\n" \
+    STATE AGENT SESSION AGE TURNS COST SUBJECT
+
+for work in "$agent"/work/*/ "$agent"/queue/*/; do
+    if [ ! -d "$work" ]; then
+        continue
+    fi
+
+    session=$(basename "$work")
+    home="$agent/work/$session"
+
+    # A queue directory outlives the messages it held; without a working
+    # directory beside it there is no thread left to report.
+    if [ ! -d "$home" ] && [ -z "$(ls -A "$agent/queue/$session" 2>/dev/null)" ]; then
+        continue
+    fi
+
+    case $seen in
+        *" $session "*) continue ;;
+    esac
+
+    seen="$seen $session "
+
+    turns=0
+    cost="-"
+
+    if [ -f "$home/cost" ]; then
+        turns=$(awk 'END { print NR }' "$home/cost")
+        cost=$(awk '{ total += $2 } END { printf "$%.2f", total + 0 }' \
+            "$home/cost")
+    fi
+    waiting=$(ls -A "$agent/queue/$session" 2>/dev/null | wc -l)
+    subject="(not yet cloned)"
+
+    if [ -f "$home/subject" ]; then
+        subject=$(cat "$home/subject")
+    fi
+
+    # A thread that predates the second agent was answered by the first.
+    name=claude
+
+    if [ -f "$home/agent" ]; then
+        name=$(cat "$home/agent")
+    fi
+
+    if [ "$waiting" -gt 0 ]; then
+        subject="$subject [+$waiting waiting]"
+    fi
+
+    printf "%-8s %-6s %-8s %5s %5s %8s  %s\n" \
+        "$(state "$session")" \
+        "$name" \
+        "$(echo "$session" | cut -c1-8)" \
+        "$(age "$home/cost")" \
+        "$turns" \
+        "$cost" \
+        "$subject"
+done

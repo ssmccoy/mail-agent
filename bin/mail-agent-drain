@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# Retry messages left in the queue by a turn that could not run, such as
+# one that found no valid login. Nothing else re-fires them: postfix
+# considered the delivery complete the moment the hook returned.
+#
+# Sessions already running are skipped rather than waited for.
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+agent="$HOME/mail/.agent"
+
+for queue in "$agent"/queue/*/; do
+    if [ ! -d "$queue" ]; then
+        continue
+    fi
+
+    session=$(basename "$queue")
+
+    if [ -z "$(ls -A "$queue")" ]; then
+        continue
+    fi
+
+    flock -n "$agent/lock/$session" "$HOME/bin/mail-agent-run" "$session" &
+done
+
+wait

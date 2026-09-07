@@ -1,0 +1,34 @@
+# The reader's side of the mail agent. Source this from ~/.muttrc, or
+# copy the pieces you want.
+
+# Maildir, with a spool per agent beside the inbox.
+set mbox_type   = Maildir
+set folder      = ~/mail
+set spoolfile   = +inbox
+mailboxes +inbox +claude +codex +archive +sent +drafts +trash
+
+# Reach the agents by name.
+alias claude Claude <you+claude@your.host>
+alias codex  Codex  <you+codex@your.host>
+
+# Replies arrive minutes after the message that caused them.
+set timeout   = 15
+set beep_new  = yes
+
+# Apply a mailed series. pipe_decode stays off so the raw message
+# arrives with its headers; pipe_split is on so a tagged series reaches
+# git am one patch at a time, rather than being squashed into one
+# commit.
+set pipe_split = yes
+macro index,pager A "<pipe-message>git-am-mail .<enter>" "apply the series here"
+macro index,pager \eA "<pipe-message>git-am-mail<enter>" "apply it where it was written"
+macro attach W "<enter-command>set pipe_decode<enter><pipe-entry>w3m -T text/html<enter><enter-command>unset pipe_decode<enter>" "read this part in w3m"
+
+# Render the parts the agent sends; see mailcap.example.
+auto_view text/markdown text/html application/mbox
+alternative_order text/plain text/html
+
+# Diff colours belong to patch mail and nowhere else: the rule that
+# paints a removal cannot tell one from a markdown bullet.
+message-hook '~s "\\[PATCH"'   'source ~/.mutt/diff.muttrc'
+message-hook '!~s "\\[PATCH"' 'source ~/.mutt/nodiff.muttrc'

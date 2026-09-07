@@ -1,0 +1,430 @@
+#!/bin/sh
+#
+# Process one queued message for a session. The caller holds the
+# per-session lock, so turns within a thread are strictly serial while
+# separate threads run in parallel.
+#
+# Whichever worker wins the lock takes the oldest queued message rather
+# than the one it was spawned for, which keeps arrival order even though
+# flock wakeups are unordered.
+#
+# Usage: mail-agent-run <session-uuid>
+
+PATH=/usr/bin:/bin:/usr/sbin
+
+export PATH
+
+session=$1
+
+root="$HOME/mail/.agent"
+queue="$root/queue/$session"
+work="$root/work/$session"
+projects="$HOME/.config/mail-agent/projects"
+limit=${MAIL_AGENT_TIMEOUT:-60m}
+fqdn=$(cat /etc/mailname 2>/dev/null || hostname -f)
+user=${MAIL_AGENT_USER:-$(id -un)}
+
+if [ -z "$session" ]; then
+    echo "usage: mail-agent-run <session-uuid>" >&2
+    exit 64
+fi
+
+# The subject names a project up to its first colon; the map turns that
+# into a repository. Replies keep the name in "Re: foundry: ..." so the
+# prefix survives, but the resolved path is recorded per thread anyway.
+project_key() {
+    mhdr -h subject "$1" \
+        | sed -e 's/^\([Rr][Ee]:[[:space:]]*\)*//' -e 's/:.*//' \
+        | tr "[:upper:]" "[:lower:]" \
+        | tr -d "[:space:]"
+}
+
+project_repo() {
+    awk -v key="$1" '$1 == key { print $2; exit }' "$projects"
+}
+
+project_keys() {
+    awk '/^[^#]/ && $1 { printf "  %-20s %s\n", $1, $2 }' "$projects"
+}
+
+# Directives are lines of the form !word at the head of the body. The
+# mode words say what the turn may do; !branch says which branch of the
+# repository to work from.
+message_mode() {
+    mshow -R "$1" 2>/dev/null </dev/null \
+        | sed -n 's/^!\(investigate\|plan\|execute\)[[:space:]]*$/\1/p' \
+        | head -1
+}
+
+message_branch() {
+    mshow -R "$1" 2>/dev/null </dev/null \
+        | sed -n 's/^!branch[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*$/\1/p' \
+        | head -1
+}
+
+# Drop the quote a reply trails behind it, but keep quoting that has
+# been answered inline: everything up to the last line the sender wrote
+# themselves is theirs, and the attribution above a trailing quote goes
+# with it.
+message_body() {
+    mshow -R "$1" 2>/dev/null </dev/null \
+        | sed -e '/^!\(investigate\|plan\|execute\)[[:space:]]*$/d' \
+              -e '/^!branch[[:space:]]/d' \
+        | awk '
+            {
+                line[NR] = $0
+
+                if ($0 !~ /^>/ && $0 ~ /[^[:space:]]/) {
+                    last = NR
+                }
+            }
+
+            END {
+                while (last > 0 &&
+                       (line[last] ~ /wrote:[[:space:]]*$/ ||
+                        line[last] ~ /^[[:space:]]*$/)) {
+                    last--
+                }
+
+                for (i = 1; i <= last; i++) {
+                    print line[i]
+                }
+            }'
+}
+
+permission_mode() {
+    case $1 in
+        execute) echo bypassPermissions ;;
+        *)       echo plan ;;
+    esac
+}
+
+# Reply into the thread. The id it went out under is what patches
+# thread beneath, so keep it.
+reply() {
+    sent=$(MAIL_AGENT_REPO="$repo" "$HOME/bin/mail-agent-reply" \
+        "$session" "$2" "$1")
+}
+
+message=$(ls "$queue" 2>/dev/null | sort | head -1)
+
+if [ -z "$message" ]; then
+    exit 0
+fi
+
+message="$queue/$message"
+scratch=$(mktemp -d)
+
+trap 'rm -rf "$scratch"' EXIT
+
+# A thread's first message fixes its repository for good; later turns
+# read the recorded path so an edited subject cannot re-target the agent.
+if [ ! -d "$work" ]; then
+    key=$(project_key "$message")
+    repo=$(project_repo "$key")
+
+    if [ -z "$repo" ] || [ ! -d "$repo/.git" ]; then
+        printf "No project matches \"%s\".\n\nKnown projects:\n\n%s\n" \
+            "$key" "$(project_keys)" > "$scratch/body"
+
+        reply "$scratch/body" "$message"
+        rm -f "$message"
+        exit 0
+    fi
+
+    mkdir -p "$work"
+    printf "%s\n" "$repo" > "$work/project"
+    printf "%s\n" "$(mhdr -h x-mail-agent "$message")" > "$work/agent"
+    mhdr -h subject "$message" > "$work/subject"
+
+    branch=$(message_branch "$message")
+
+    if [ -n "$branch" ]; then
+        if ! git clone --no-hardlinks --quiet --branch "$branch" \
+                "$repo" "$work/repo"; then
+            printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
+                > "$scratch/body"
+
+            reply "$scratch/body" "$message"
+            rm -rf "$work"
+            rm -f "$message"
+            exit 0
+        fi
+    else
+        git clone --no-hardlinks --quiet "$repo" "$work/repo"
+    fi
+
+    git -C "$work/repo" rev-parse HEAD > "$work/base"
+
+    cat > "$work/CLAUDE.md" <<RULES
+# Working by mail
+
+Say what a thing is and what it does. A structure contains or
+encapsulates its values, an identifier is generated, a program has an
+interface. The words listed at the end of this file mark text as
+machine-written and are not to be used as metaphor.
+
+You are answering mail. The reply is composed from your final message,
+so write it as prose addressed to the sender, not as a status report.
+
+The repository is cloned at repo/. Its origin is read-only: you can
+fetch, you cannot push, and nothing outside this directory is writable.
+
+To deliver code, commit it in repo/. Every commit you make is turned
+into a patch and mailed back, so commit messages are part of the reply.
+Do not commit work in progress.
+
+Each message names a mode. In investigate and plan mode, edits are
+refused by the harness; answer with findings or a plan. In execute mode,
+make the change and commit it.
+
+When a turn needs a decision from the sender, end the reply with a
+section headed Questions, numbered, one decision to a line, each saying
+what you will assume if it goes unanswered. Never leave an open question
+buried in a paragraph: the sender is answering by mail and needs to see
+what is being asked of them without hunting for it. An answer may come
+back as a bare number, or written underneath the quoted question; either
+way it is yours to match up.
+
+Answer in proportion to what was asked. A question that wants one
+sentence gets one sentence, read from the least code that settles it.
+Reserve subagents for work that genuinely fans out across the tree; a
+turn has a time limit and they are the fastest way to exhaust it.
+
+# Words to avoid
+RULES
+
+    sed "s/#.*//" "$HOME/.config/mail-agent/blacklist" \
+        | tr -s "[:space:]" "\n" | sed "/^$/d" | sort -u | paste -sd" " - \
+        | fold -s -w 72 >> "$work/CLAUDE.md"
+fi
+
+# A working directory that exists without a recorded project has lost
+# its clone; say so rather than running the turn against nothing.
+if [ ! -f "$work/project" ]; then
+    printf "%s\n%s\n" \
+        "This thread's working directory is gone, so there is no clone to work in." \
+        "Start a new thread to pick the work back up." > "$scratch/body"
+
+    reply "$scratch/body" "$message"
+    rm -f "$message"
+    exit 0
+fi
+
+repo=$(cat "$work/project")
+agent=$(cat "$work/agent" 2>/dev/null)
+
+if [ -z "$agent" ]; then
+    agent=claude
+fi
+
+MAIL_AGENT="$agent"
+
+export MAIL_AGENT
+
+# A later turn may move the thread to another branch. The patch base
+# moves with it, so a series is always measured from the branch tip the
+# work started on rather than from wherever the thread began.
+branch=$(message_branch "$message")
+current=$(git -C "$work/repo" rev-parse --abbrev-ref HEAD)
+
+if [ -n "$branch" ] && [ "$branch" != "$current" ]; then
+    if git -C "$work/repo" fetch --quiet origin "$branch" &&
+       git -C "$work/repo" checkout --quiet -B "$branch" FETCH_HEAD; then
+        git -C "$work/repo" rev-parse HEAD > "$work/base"
+    else
+        printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
+            > "$scratch/body"
+
+        reply "$scratch/body" "$message"
+        rm -f "$message"
+        exit 0
+    fi
+fi
+
+if mshow -R "$message" 2>/dev/null </dev/null | grep -q "^!details[[:space:]]*$"; then
+    # Consume it first, or the thread reports itself as one message
+    # behind: this request is the one waiting.
+    details=$(mktemp)
+
+    cp "$message" "$details"
+    rm -f "$message"
+
+    "$HOME/bin/mail-agent-details" "$session" > "$scratch/details"
+    reply "$scratch/details" "$details"
+
+    rm -f "$details"
+    exit 0
+fi
+
+mode=$(message_mode "$message")
+
+if [ -z "$mode" ]; then
+    unknown=$(mshow -R "$message" 2>/dev/null </dev/null \
+        | sed -n 's/^!\([a-z][a-z]*\).*$/\1/p' | head -1)
+
+    # A directive that is not one of ours would otherwise fall back to
+    # investigate, and the sender would be told edits are refused
+    # without being told why.
+    if [ -n "$unknown" ] && [ "$unknown" != "branch" ] &&
+       [ "$unknown" != "details" ]; then
+        printf "%s\n\n    %s\n\n%s\n" \
+            "There is no !$unknown directive, so the turn did not run." \
+            "!investigate  !plan  !execute  !branch <name>  !details" \
+            "Resend with one of those." > "$scratch/body"
+
+        reply "$scratch/body" "$message"
+        rm -f "$message"
+        exit 0
+    fi
+
+    mode=investigate
+fi
+
+{
+    printf "From: %s\n" "$(mhdr -h from "$message")"
+    printf "Date: %s\n" "$(mhdr -h date "$message")"
+    printf "Subject: %s\n" "$(mhdr -h subject "$message")"
+    printf "Mode: %s\n" "$mode"
+    printf "\n"
+
+    message_body "$message"
+} > "$scratch/prompt"
+
+if [ -f "$work/started" ]; then
+    resume="--resume"
+else
+    resume="--session-id"
+fi
+
+started=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+
+# Plan mode writes its plan under the agent's config directory; mark the
+# clock so the ones written by this turn can be told from the rest.
+touch "$scratch/mark"
+
+MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-$agent" \
+    "$work" "$scratch" "$scratch/prompt" "$mode" 2> "$scratch/stderr"
+
+status=$?
+
+if [ "$status" -eq 124 ]; then
+    printf "The turn exceeded its %s limit and was stopped.\n" "$limit" \
+        > "$scratch/body"
+
+    reply "$scratch/body" "$message"
+    rm -f "$message"
+    exit 0
+fi
+
+# A failure a later run could survive keeps its message queued for the
+# drain; anything else consumes it, so a permanent fault cannot loop.
+if [ "$status" -ne 0 ]; then
+    if [ -f "$work/notified" ]; then
+        exit 0
+    fi
+
+    printf "The agent could not run this turn:\n\n    %s\n\n%s\n" \
+        "$(tail -3 "$scratch/stderr")" \
+        "Your message is still queued and will be retried." > "$scratch/body"
+
+    reply "$scratch/body" "$message"
+    touch "$work/notified"
+    exit 0
+fi
+
+rm -f "$work/notified"
+
+printf "%s %s\n" "$started" "$(cat "$scratch/cost" 2>/dev/null || echo 0)" \
+    >> "$work/cost"
+
+# Patches are sent as messages rather than carried as an attachment, so
+# a diff can be read in the pager and answered under the hunk it is
+# about. mail_patches runs after the reply, which is their cover letter.
+mail_patches() {
+    if [ "$(git -C "$work/repo" rev-parse HEAD)" = "$(cat "$work/base")" ]; then
+        return
+    fi
+
+    git -C "$work/repo" format-patch --quiet --thread \
+        --in-reply-to="$sent" \
+        --from="$(printf "%s" "$agent" | sed "s/^./\\U&/") <$user+$agent@$fqdn>" \
+        --to="$(mhdr -h from "$message")" \
+        -o "$scratch/patches" "$(cat "$work/base")..HEAD"
+
+    for patch in "$scratch"/patches/*.patch; do
+        {
+            printf "X-Mail-Agent: %s\n" "$agent"
+            printf "X-Mail-Session: %s\n" "$session"
+            printf "X-Mail-Repo: %s\n" "$repo"
+            printf "Auto-Submitted: auto-replied\n"
+
+            # format-patch writes an mbox, whose From_ line is not a
+            # header and would be read as one.
+            sed "1{/^From [0-9a-f]\{40\} /d;}" "$patch"
+        } | sendmail -t
+    done
+}
+
+# A plan is a document the sender asked for, so it travels with the
+# reply rather than staying on this host.
+: > "$scratch/plans"
+
+if [ -d "$HOME/mail/.agent/$agent/plans" ]; then
+    # Keep the generated name: it is what the plan is called on disk,
+    # so the attachment and the file can be told to be the same one.
+    find "$HOME/mail/.agent/$agent/plans" -name "*.md" -newer "$scratch/mark" | sort |
+        while read -r plan; do
+            name=$(basename "$plan")
+
+            if ! pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns=79 \
+                    "$plan" > "$scratch/$name" 2>/dev/null; then
+                cp "$plan" "$scratch/$name"
+            fi
+
+            printf "#text/markdown;charset=UTF-8 %s>%s\n" "$scratch/$name" "$name"
+        done > "$scratch/plans"
+fi
+
+# The driver wrote reply.md; rewrap it so a terminal reader is not
+# scrolling sideways, and leave it as markdown for mailcap to render.
+if pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns=79 \
+        "$scratch/reply.md" > "$scratch/wrapped.md" 2>/dev/null; then
+    mv "$scratch/wrapped.md" "$scratch/reply.md"
+fi
+
+{
+    printf "#text/markdown;charset=UTF-8#inline %s>\n" "$scratch/reply.md"
+
+    if [ -s "$scratch/plans" ]; then
+        cat "$scratch/plans"
+    fi
+
+    if [ -s "$scratch/steps.txt" ]; then
+        printf "#text/plain;charset=UTF-8 %s>steps.txt\n" "$scratch/steps.txt"
+    fi
+
+    if [ -s "$scratch/usage.html" ]; then
+        printf "#text/html %s>usage.html\n" "$scratch/usage.html"
+    fi
+
+    if [ -s "$scratch/reasoning.html" ]; then
+        printf "#text/html %s>reasoning.html\n" "$scratch/reasoning.html"
+    fi
+} > "$scratch/body"
+
+reply "$scratch/body" "$message"
+mail_patches
+
+rm -f "$message"
+rmdir "$queue" 2>/dev/null
+
+# Each arriving message spawns a worker, but a worker takes the oldest
+# message rather than its own, so a retained message leaves one more
+# message than workers. Take the next one here instead of leaving it for
+# the timer.
+if [ -n "$(ls -A "$queue" 2>/dev/null)" ]; then
+    exec "$0" "$session"
+fi
+
+exit 0

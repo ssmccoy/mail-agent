@@ -1,0 +1,84 @@
+#!/bin/sh
+#
+# Delivery-time hook, invoked from ~/.forward+<agent> with the message
+# on standard input.
+#
+# Queues the message under the session it belongs to and hands the work
+# to a detached unit, so the postfix delivery agent is released
+# immediately rather than waiting out an agent turn.
+
+PATH=/usr/bin:/bin
+XDG_RUNTIME_DIR=/run/user/$(id -u)
+
+export PATH XDG_RUNTIME_DIR
+
+root="$HOME/mail/.agent"
+
+# The address the message arrived on names the agent that answers it.
+agent=${EXTENSION:-claude}
+
+# The session id travels in the Message-Id we generate, so any reply
+# carries it back to us in References or In-Reply-To.
+# mhdr honours only the last -h, so ask for each header in turn or a
+# reply carrying References without In-Reply-To starts a new thread.
+session_of() {
+    {
+        mhdr -h references "$1" 2>/dev/null
+        mhdr -h in-reply-to "$1" 2>/dev/null
+    } \
+        | tr " " "\n" \
+        | sed -n 's/^<c\.\([0-9a-f-]\{36\}\)\..*>$/\1/p' \
+        | tail -1
+}
+
+mkdir -p "$root/queue" "$root/lock"
+
+message=$(mktemp "$root/queue/.incoming.XXXXXXXX")
+
+# Record the agent in the message itself: the worker may run it hours
+# later, out of the delivery environment that knew which address it
+# came to.
+printf "X-Mail-Agent: %s\n" "$agent" > "$message"
+cat >> "$message"
+
+# Never answer our own mail: a loop here would run until the disk fills.
+if mhdr -h x-claude-agent "$message" | grep -q .; then
+    rm -f "$message"
+    exit 0
+fi
+
+session=$(session_of "$message")
+
+# The delivery agent runs under systemd hardening that hides /proc/sys,
+# so the kernel's uuid file is unavailable here and uuidgen is not
+# installed; take the bytes from /dev/urandom and shape them by hand.
+if [ -z "$session" ]; then
+    session=$(od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
+        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\\1-\\2-4\\3-a\\4-\\5/")
+fi
+
+# !details is answered from what is already on disk, so answer it here
+# rather than queueing it behind a turn that may run for an hour.
+if mshow -R "$message" 2>/dev/null </dev/null | grep -q "^!details[[:space:]]*$"; then
+    body=$(mktemp)
+
+    if [ -d "$root/work/$session" ]; then
+        "$HOME/bin/mail-agent-details" "$session" > "$body"
+    else
+        printf "%s\n" "This is a new thread; there is nothing to report yet." \
+            > "$body"
+    fi
+
+    MAIL_AGENT="$agent" "$HOME/bin/mail-agent-reply" \
+        "$session" "$message" "$body" > /dev/null
+
+    rm -f "$body" "$message"
+    exit 0
+fi
+
+mkdir -p "$root/queue/$session"
+mv "$message" "$root/queue/$session/$(date +%s%N)"
+
+systemd-run --user --collect --quiet \
+    --unit="mail-agent-$session-$(date +%s%N)" \
+    flock "$root/lock/$session" "$HOME/bin/mail-agent-run" "$session"

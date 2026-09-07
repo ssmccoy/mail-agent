@@ -1,0 +1,6 @@
+[Unit]
+Description=Retry queued mail-agent turns
+
+[Service]
+Type=oneshot
+ExecStart=%h/bin/mail-agent-drain
