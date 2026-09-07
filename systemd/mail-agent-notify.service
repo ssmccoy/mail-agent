@@ -1,0 +1,10 @@
+[Unit]
+Description=Notify of new mail in the inbox
+# A single delivery can register more than one filesystem event; do not
+# let a burst push the unit into a start-limit failure.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
+ExecStart=/bin/sh -c 'n=$(ls %h/mail/inbox/new 2>/dev/null | wc -l); [ "$n" -gt 0 ] && notify-send -a mutt "New mail" "$n new in inbox" || true'

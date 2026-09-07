@@ -3,6 +3,7 @@
 #   make install     scripts, configuration, sandbox profiles, units
 #   make forward     the inbox maildir and the .forward that feeds the hook
 #   make enable      start the retry timer
+#   make notify      desktop notifications for new inbox mail
 #   make check       report what is missing
 #   make mutt        the reader-side pieces, printed rather than installed
 
@@ -50,6 +51,16 @@ enable:
 	systemctl --user daemon-reload
 	systemctl --user enable --now mail-agent-drain.timer
 
+notify:
+	install -d $(UNITS)
+	install -m 644 systemd/mail-agent-notify.path \
+	    systemd/mail-agent-notify.service $(UNITS)
+	systemctl --user daemon-reload
+	systemctl --user enable --now mail-agent-notify.path
+	@echo
+	@echo "Reader-side, in ~/.muttrc:"
+	@echo "  set new_mail_command = \"notify-send -a mutt 'New mail: %f' '%n new'\""
+
 check:
 	@for tool in postconf sendmail mhdr mshow mmime jq pandoc node w3m git \
 	    flock systemd-run landrun; do \
@@ -68,4 +79,4 @@ check:
 mutt:
 	@cat mutt/muttrc.example
 
-.PHONY: install forward enable check mutt
+.PHONY: install spool enable notify check mutt

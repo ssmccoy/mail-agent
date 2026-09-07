@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch the inbox for new mail
+
+[Path]
+# PathModified fires once per change to the maildir: a delivery renames a
+# message into new/, reading it in mutt moves it out again. Do not use
+# DirectoryNotEmpty here: a oneshot that does not empty new/ would be
+# re-triggered without pause while any mail sits unread.
+PathModified=%h/mail/inbox/new
+Unit=mail-agent-notify.service
+
+[Install]
+WantedBy=default.target
