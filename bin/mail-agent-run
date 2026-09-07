@@ -20,6 +20,7 @@ root="$HOME/mail/.agent"
 queue="$root/queue/$session"
 work="$root/work/$session"
 projects="$HOME/.config/mail-agent/projects"
+agents="$HOME/.config/mail-agent/agents"
 limit=${MAIL_AGENT_TIMEOUT:-60m}
 fqdn=$(cat /etc/mailname 2>/dev/null || hostname -f)
 
@@ -37,6 +38,13 @@ project_key() {
         | sed -e 's/:.*//' \
         | tr "[:upper:]" "[:lower:]" \
         | tr -d "[:space:]"
+}
+
+# An alias names a driver and the model it runs; a model of "-" leaves
+# the driver's default alone.
+agent_field() {
+    awk -v alias="$1" -v field="$2" \
+        '$1 == alias { print $field; exit }' "$agents"
 }
 
 # One shared clone per repository, named for the path it came from.
@@ -250,6 +258,13 @@ if [ -z "$agent" ]; then
     agent=claude
 fi
 
+driver=$(agent_field "$agent" 2)
+model=$(agent_field "$agent" 3)
+
+if [ -z "$driver" ]; then
+    driver=$agent
+fi
+
 MAIL_AGENT="$agent"
 
 export MAIL_AGENT
@@ -340,8 +355,9 @@ started=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
 # clock so the ones written by this turn can be told from the rest.
 touch "$scratch/mark"
 
-MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-$agent" \
-    "$work" "$scratch" "$scratch/prompt" "$mode" 2> "$scratch/stderr"
+MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-$driver" \
+    "$work" "$scratch" "$scratch/prompt" "$mode" "$model" \
+    2> "$scratch/stderr"
 
 status=$?
 
@@ -428,10 +444,10 @@ mail_patches() {
 # reply rather than staying on this host.
 : > "$scratch/plans"
 
-if [ -d "$HOME/mail/.agent/$agent/plans" ]; then
+if [ -d "$HOME/mail/.agent/$driver/plans" ]; then
     # Keep the generated name: it is what the plan is called on disk,
     # so the attachment and the file can be told to be the same one.
-    find "$HOME/mail/.agent/$agent/plans" -name "*.md" -newer "$scratch/mark" | sort |
+    find "$HOME/mail/.agent/$driver/plans" -name "*.md" -newer "$scratch/mark" | sort |
         while read -r plan; do
             name=$(basename "$plan")
 

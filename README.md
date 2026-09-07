@@ -56,8 +56,7 @@ executes code out of reach of anything but this machine.
 
     make check                  # report what is missing
     make install                # scripts, profiles, units, configuration
-    make spool AGENT=claude     # a maildir and a .forward for one agent
-    make spool AGENT=codex
+    make forward                # the inbox and the .forward that feeds the hook
     make enable                 # the retry timer
 
 Then link the credentials each agent should use, so a refreshed token is
@@ -283,17 +282,19 @@ A turn is stopped after an hour; set `MAIL_AGENT_TIMEOUT` to change it. The
 limit exists because subagents can stall a batch run indefinitely, and a
 stalled turn holds the thread’s lock.
 
-## The two agents
+## The drivers
 
-|                  | Claude                 | codex                              |
+|                  | claude                 | codex                              |
 |------------------|------------------------|------------------------------------|
-| address          | `you+claude`           | `you+codex`                        |
-| spool            | `~/mail/claude`        | `~/mail/codex`                     |
+| aliases          | claude, fable, opus…   | codex, sol, astra…                 |
 | state            | `~/mail/.agent/claude` | `~/mail/.agent/codex`              |
 | credentials      | symlink to `~/.claude` | symlink to `~/.codex`              |
 | instructions     | `CLAUDE.md`            | `AGENTS.md`, a symlink to it       |
 | edits refused by | permission mode        | landlock, with the clone read-only |
 | reports          | cost in dollars        | token counts                       |
+
+State belongs to the driver, not the alias: fable and opus share Claude’s
+session store and credentials, and differ only in the model passed to it.
 
 codex runs with its own sandbox turned off, because it cannot initialise one
 inside landlock’s. Landlock is then the only boundary, which is why an
@@ -319,7 +320,6 @@ agent’s.
 | `~/.config/landlock/mail-agent-codex-ro.cfg` | the same, clone read-only         |
 | `~/.config/mail-agent/steps-codex.jq`        | the step summary, codex events    |
 | `~/.config/mail-agent/projects`              | subject key to repository         |
-| `~/mail/claude/`                             | what was sent to the agent        |
 | `~/mail/.agent/work/<session>/`              | the thread’s clone                |
 | `~/mail/.agent/queue/<session>/`             | messages not yet answered         |
 | `~/mail/.agent/work/<session>/cost`          | a line per turn, with its cost    |

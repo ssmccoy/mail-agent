@@ -1,8 +1,7 @@
 # Install the mail agent into a home directory.
 #
 #   make install     scripts, configuration, sandbox profiles, units
-#   make spool AGENT=codex
-#                    a maildir and a .forward for one agent
+#   make forward     the inbox maildir and the .forward that feeds the hook
 #   make enable      start the retry timer
 #   make check       report what is missing
 #   make mutt        the reader-side pieces, printed rather than installed
@@ -11,8 +10,6 @@ PREFIX ?= $(HOME)
 BIN = $(PREFIX)/bin
 CONFIG = $(PREFIX)/.config
 UNITS = $(CONFIG)/systemd/user
-AGENT ?= claude
-
 SCRIPTS = $(notdir $(wildcard bin/*))
 CONFIGS = $(filter-out projects.example,$(notdir $(wildcard config/*)))
 PROFILES = $(notdir $(wildcard landlock/*))
@@ -29,19 +26,24 @@ install:
 	test -e $(CONFIG)/mail-agent/projects || \
 	    install -m 644 config/projects.example $(CONFIG)/mail-agent/projects
 	@echo
-	@echo "Installed. Next: make spool AGENT=claude, then make enable."
+	@echo "Installed. Next: make forward, then make enable."
 
-spool:
-	install -d -m 700 $(PREFIX)/mail/$(AGENT)/cur $(PREFIX)/mail/$(AGENT)/new \
-	    $(PREFIX)/mail/$(AGENT)/tmp
+# One .forward serves every address, so an alias added to the agents
+# table needs nothing here. It governs plain mail too, which is why the
+# inbox is named in it.
+forward:
+	install -d -m 700 $(PREFIX)/mail/inbox/cur $(PREFIX)/mail/inbox/new \
+	    $(PREFIX)/mail/inbox/tmp
 	install -d -m 700 $(PREFIX)/mail/.agent/queue $(PREFIX)/mail/.agent/lock \
-	    $(PREFIX)/mail/.agent/work $(PREFIX)/mail/.agent/$(AGENT)
-	printf '%s/mail/%s/\n|%s/bin/mail-agent-hook\n' \
-	    '$(PREFIX)' '$(AGENT)' '$(PREFIX)' > $(PREFIX)/.forward+$(AGENT)
-	chmod 600 $(PREFIX)/.forward+$(AGENT)
+	    $(PREFIX)/mail/.agent/work $(PREFIX)/mail/.agent/repos \
+	    $(PREFIX)/mail/.agent/claude $(PREFIX)/mail/.agent/codex
+	printf '%s/mail/inbox/\n|%s/bin/mail-agent-hook\n' \
+	    '$(PREFIX)' '$(PREFIX)' > $(PREFIX)/.forward
+	chmod 600 $(PREFIX)/.forward
 	@echo
-	@echo "Link the credentials the agent should use, for example:"
+	@echo "Link the credentials each driver should use:"
 	@echo "  ln -s ~/.claude/.credentials.json ~/mail/.agent/claude/"
+	@echo "  ln -s ~/.claude/CLAUDE.md ~/mail/.agent/claude/CLAUDE.md"
 	@echo "  ln -s ~/.codex/auth.json ~/mail/.agent/codex/"
 
 enable:
@@ -66,4 +68,4 @@ check:
 mutt:
 	@cat mutt/muttrc.example
 
-.PHONY: install spool enable check mutt
+.PHONY: install forward enable check mutt

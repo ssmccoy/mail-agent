@@ -3,7 +3,7 @@
 # Run one turn of a mail thread with Claude and write what the harness
 # needs to compose a reply.
 #
-# Usage: mail-agent-claude <work> <out> <prompt> <mode>
+# Usage: mail-agent-claude <work> <out> <prompt> <mode> [model]
 #
 # Reads and writes <work>/agent-session, so the first turn starts a
 # session and later turns resume it. Writes into <out>: reply.md, the
@@ -20,14 +20,21 @@ work=$1
 out=$2
 prompt=$3
 mode=$4
+model=$5
 
 if [ -z "$mode" ]; then
-    echo "usage: mail-agent-claude <work> <out> <prompt> <mode>" >&2
+    echo "usage: mail-agent-claude <work> <out> <prompt> <mode> [model]" >&2
     exit 64
 fi
 
+# A model of "-", or none, leaves the CLI's own default alone.
+if [ -n "$model" ] && [ "$model" != "-" ]; then
+    with_model="--model $model"
+else
+    with_model=""
+fi
+
 limit=${MAIL_AGENT_TIMEOUT:-60m}
-config="$HOME/mail/.agent/claude"
 repo=$(cat "$work/project")
 
 permission_mode() {
@@ -57,7 +64,7 @@ fi
         "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
         --permission-mode "$(permission_mode "$mode")" \
-        $resume "$session" < "$prompt"
+        $with_model $resume "$session" < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
 
 status=$?

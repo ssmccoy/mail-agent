@@ -1,0 +1,17 @@
+# The addresses the agent answers, and what answers them. The word after
+# the plus in the address selects a row: mail to you+fable reaches the
+# claude driver running Fable.
+#
+# A model of "-" leaves the driver's own default alone. Adding a model
+# is a line here and nothing else: one .forward serves every address.
+#
+# alias       driver   model
+
+claude        claude   -
+fable         claude   fable
+opus          claude   opus
+sonnet        claude   sonnet
+
+codex         codex    gpt-5.5
+sol           codex    gpt-5.6-sol
+astra         codex    gpt-6-astra

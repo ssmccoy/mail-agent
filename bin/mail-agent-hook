@@ -15,7 +15,16 @@ export PATH XDG_RUNTIME_DIR
 root="$HOME/mail/.agent"
 
 # The address the message arrived on names the agent that answers it.
-agent=${EXTENSION:-claude}
+# One .forward serves them all, so a message to any other address, or to
+# no extension at all, is ordinary mail that postfix has already
+# delivered.
+agent=$EXTENSION
+
+if [ -z "$agent" ] ||
+   ! awk -v alias="$agent" '$1 == alias { found = 1 }
+        END { exit !found }' "$HOME/.config/mail-agent/agents"; then
+    exit 0
+fi
 
 # The session id travels in the Message-Id we generate, so any reply
 # carries it back to us in References or In-Reply-To.
