@@ -253,6 +253,13 @@ certificates, and the transcripts of interactive sessions are all outside it.
 The agent cannot inject mail either: the postfix maildrop spool is unwritable,
 so a reply cannot answer itself.
 
+A toolchain the sandbox cannot reach is the usual reason a turn goes nowhere:
+Go writes to `GOPATH` whether or not it is set, and the default is outside the
+sandbox, so the profiles point the Go caches at `~/mail/.agent/go` and grant
+it, and put proto’s shims on the path. A language whose toolchain is not
+reachable that way needs the same two lines in the profile before an agent can
+build anything.
+
 Commits are the delivery mechanism. The clone’s origin is read-only, so nothing
 the agent does reaches a real tree until `git am` puts it there.
 

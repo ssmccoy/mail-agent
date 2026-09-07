@@ -56,7 +56,7 @@ fi
 (
     cd "$work/repo" || exit 70
 
-    PATH=/usr/bin timeout "$limit" "$HOME/bin/landlock" \
+    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$mode").cfg" -r "$repo" \
         "$HOME/.local/bin/codex" "$@" --json -o "$last" \
         --dangerously-bypass-approvals-and-sandbox \

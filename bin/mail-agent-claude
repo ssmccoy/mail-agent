@@ -52,7 +52,7 @@ fi
 (
     cd "$work/repo" || exit 70
 
-    PATH=/usr/bin timeout "$limit" "$HOME/bin/landlock" \
+    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/mail-agent-claude.cfg" -r "$repo" \
         "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
