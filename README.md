@@ -89,9 +89,10 @@ first line of the body names the mode.
     backoff with a cap of thirty seconds.
 
 The word before the first colon in the subject selects the repository from
-`~/.config/mail-agent/projects`. It is read once, when the thread starts;
-editing it in a later reply changes nothing, so a thread cannot be re-pointed
-at another repository halfway through.
+`~/.config/mail-agent/projects`. Any run of `Re:` and `Fwd:` in front of it is
+ignored, so a forwarded message routes by the subject it carried. It is read
+once, when the thread starts; editing it in a later reply changes nothing, so a
+thread cannot be re-pointed at another repository halfway through.
 
 Reply to a reply to continue the same session. The session id travels in the
 `Message-Id`, so any client that keeps a `References` header keeps the
@@ -296,7 +297,7 @@ agent’s.
 
 | path                                         | what                              |
 |----------------------------------------------|-----------------------------------|
-| `~/.forward+<agent>`                          | delivery to the spool and hook    |
+| `~/.forward+<agent>`                         | delivery to the spool and hook    |
 | `~/bin/mail-agent-hook`                      | queues an arriving message        |
 | `~/bin/mail-agent-run`                       | runs one turn and replies         |
 | `~/bin/mail-agent-render`                    | transcript to HTML                |

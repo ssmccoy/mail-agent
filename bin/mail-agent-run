@@ -30,11 +30,12 @@ if [ -z "$session" ]; then
 fi
 
 # The subject names a project up to its first colon; the map turns that
-# into a repository. Replies keep the name in "Re: foundry: ..." so the
-# prefix survives, but the resolved path is recorded per thread anyway.
+# into a repository. A reply or a forward puts its own word in front, so
+# strip those first, or the project is read as "re" or "fwd".
 project_key() {
     mhdr -h subject "$1" \
-        | sed -e 's/^\([Rr][Ee]:[[:space:]]*\)*//' -e 's/:.*//' \
+        | sed -E 's/^([[:space:]]*(([Rr][Ee])|([Ff][Ww][Dd]?)):[[:space:]]*)*//' \
+        | sed -e 's/:.*//' \
         | tr "[:upper:]" "[:lower:]" \
         | tr -d "[:space:]"
 }
