@@ -23,6 +23,7 @@ projects="$HOME/.config/mail-agent/projects"
 agents="$HOME/.config/mail-agent/agents"
 limit=${MAIL_AGENT_TIMEOUT:-60m}
 fqdn=$(cat /etc/mailname 2>/dev/null || hostname -f)
+user=${MAIL_AGENT_USER:-$(id -un)}
 
 if [ -z "$session" ]; then
     echo "usage: mail-agent-run <session-uuid>" >&2
@@ -210,7 +211,11 @@ fetch, you cannot push, and nothing outside this directory is writable.
 To deliver code, commit it in repo/. Every commit you make is turned
 into a patch and mailed back, so commit messages are part of the reply.
 Nothing else you write is delivered: an edit left uncommitted reaches
-nobody, and the working directory is not read again. Do not commit work
+nobody, and the working directory is not read again. Write the commit
+message as a message: one short line naming the change, then a blank
+line, then the reasoning. A first paragraph with no subject line above
+it becomes the subject, and arrives as a mail whose subject runs to a
+hundred words. Do not commit work
 in progress, but do commit work you have finished, even when you could
 not verify it as thoroughly as you wanted; say so in the reply instead.
 
