@@ -418,7 +418,10 @@ if pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns=79 \
 fi
 
 {
-    printf "#text/markdown;charset=UTF-8#inline %s>\n" "$scratch/reply.md"
+    # The body is text/plain. Any other type is an attachment to a mail
+    # reader, banner and all, however it is disposed; the reply is
+    # already wrapped, and markdown reads as itself.
+    printf "#text/plain;charset=UTF-8#inline %s>\n" "$scratch/reply.md"
 
     if [ -s "$scratch/plans" ]; then
         cat "$scratch/plans"
