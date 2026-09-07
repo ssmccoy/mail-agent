@@ -2,8 +2,9 @@
 # the plus in the address selects a row: mail to you+fable reaches the
 # claude driver running Fable.
 #
-# A model of "-" leaves the driver's own default alone. Adding a model
-# is a line here and nothing else: one .forward serves every address.
+# A model of "-" leaves the driver's own default alone, which is what
+# the driver's own name is for. Adding a model is a line here and
+# nothing else: one .forward serves every address.
 #
 # alias       driver   model
 
@@ -11,7 +12,11 @@ claude        claude   -
 fable         claude   fable
 opus          claude   opus
 sonnet        claude   sonnet
+haiku         claude   haiku
 
-codex         codex    gpt-5.5
-sol           codex    gpt-5.6-sol
+codex         codex    -
 astra         codex    gpt-6-astra
+sol           codex    gpt-5.6-sol
+terra         codex    gpt-5.6-terra
+luna          codex    gpt-5.6-luna
+mini          codex    gpt-5.4-mini

@@ -75,10 +75,27 @@ in `~/.mailcap`.
 
 ## Sending
 
-Address the mail to `claude` or to `codex`, both mutt aliases for the extension
-addresses. The address decides which agent answers, and the thread keeps it: a
-reply goes back to whichever one started it. The subject names the project; the
-first line of the body names the mode.
+Address the mail to one of the aliases in `~/.config/mail-agent/agents`. The
+word after the plus selects a row of that table, which names the driver that
+answers and the model it runs:
+
+    # alias       driver   model
+
+    claude        claude   -
+    fable         claude   fable
+    haiku         claude   haiku
+    codex         codex    -
+    sol           codex    gpt-5.6-sol
+    mini          codex    gpt-5.4-mini
+
+A model of `-` leaves the driver’s own default alone, which is what the
+driver’s own name is for. Adding a model is that line and nothing else: one
+`~/.forward` serves every address, so there is no spool or forward file to
+create, and a mutt alias is worth adding only for typing.
+
+A thread keeps the alias it started with, so a reply to Fable is answered by
+Fable. The subject names the project; the first line of the body names the
+mode.
 
     To: claude
     Subject: foundry: retry backoff on the dcfab poller
@@ -284,14 +301,14 @@ stalled turn holds the thread’s lock.
 
 ## The drivers
 
-|                  | claude                 | codex                              |
-|------------------|------------------------|------------------------------------|
-| aliases          | claude, fable, opus…   | codex, sol, astra…                 |
-| state            | `~/mail/.agent/claude` | `~/mail/.agent/codex`              |
-| credentials      | symlink to `~/.claude` | symlink to `~/.codex`              |
-| instructions     | `CLAUDE.md`            | `AGENTS.md`, a symlink to it       |
-| edits refused by | permission mode        | landlock, with the clone read-only |
-| reports          | cost in dollars        | token counts                       |
+|                  | claude                             | codex                                |
+|------------------|------------------------------------|--------------------------------------|
+| aliases          | claude, fable, opus, sonnet, haiku | codex, astra, sol, terra, luna, mini |
+| state            | `~/mail/.agent/claude`             | `~/mail/.agent/codex`                |
+| credentials      | symlink to `~/.claude`             | symlink to `~/.codex`                |
+| instructions     | `CLAUDE.md`                        | `AGENTS.md`, a symlink to it         |
+| edits refused by | permission mode                    | landlock, with the clone read-only   |
+| reports          | cost in dollars                    | token counts                         |
 
 State belongs to the driver, not the alias: fable and opus share Claude’s
 session store and credentials, and differ only in the model passed to it.
