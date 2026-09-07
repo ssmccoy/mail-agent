@@ -50,8 +50,14 @@ fi
 
 printf "session   %s\n" "$session"
 printf "subject   %s\n" "$(cat "$work/subject" 2>/dev/null)"
-printf "state     %s, %s waiting\n" "$state" \
-    "$(ls -A "$agent/queue/$session" 2>/dev/null | wc -l)"
+waiting=$(ls -A "$agent/queue/$session" 2>/dev/null | wc -l)
+
+# The message being answered stays queued until its reply is sent.
+if [ "$state" = running ] && [ "$waiting" -gt 0 ]; then
+    waiting=$((waiting - 1))
+fi
+
+printf "state     %s, %s waiting\n" "$state" "$waiting"
 printf "project   %s\n" "$(cat "$work/project" 2>/dev/null)"
 printf "branch    %s\n" "$(git -C "$work/repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 printf "base      %s\n" "$(cut -c1-12 "$work/base" 2>/dev/null)"

@@ -72,6 +72,12 @@ for work in "$agent"/work/*/ "$agent"/queue/*/; do
             "$home/cost")
     fi
     waiting=$(ls -A "$agent/queue/$session" 2>/dev/null | wc -l)
+
+    # A message stays queued until its reply is sent, so the one being
+    # answered is in that count and is not waiting for anything.
+    if [ "$(state "$session")" = running ] && [ "$waiting" -gt 0 ]; then
+        waiting=$((waiting - 1))
+    fi
     subject="(not yet cloned)"
 
     if [ -f "$home/subject" ]; then
