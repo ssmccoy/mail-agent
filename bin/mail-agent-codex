@@ -100,7 +100,7 @@ jq -r --arg work "$work/" -f "$HOME/.config/mail-agent/steps-codex.jq" \
 # codex reports tokens rather than money, so the table counts tokens.
 jq -rs --arg session "$(cat "$work/agent-session")" '
     (map(select(.type=="turn.completed"))|last.usage) as $usage
-    | (map(select(.type=="item.completed"))|length) as $items
+    | (map(select(.type=="item.completed"))|length) as $steps
     | "<!doctype html><meta charset=\"utf-8\"><title>Turn cost</title>"
     + "<style>body{font:14px/1.5 ui-monospace,monospace;margin:1.5rem}"
     + "table{border-collapse:collapse}td,th{padding:.25rem .75rem;"
@@ -111,7 +111,7 @@ jq -rs --arg session "$(cat "$work/agent-session")" '
     + "<tr><td>cached input</td><td class=\"n\">\($usage.cached_input_tokens)</td></tr>"
     + "<tr><td>output</td><td class=\"n\">\($usage.output_tokens)</td></tr>"
     + "<tr><td>reasoning</td><td class=\"n\">\($usage.reasoning_output_tokens)</td></tr>"
-    + "<tr><td>items</td><td class=\"n\">\($items)</td></tr>"
+    + "<tr><td>steps taken</td><td class=\"n\">\($steps)</td></tr>"
     + "<tr><td>thread</td><td class=\"n\">\($session)</td></tr>"
     + "</table>"' "$work/events.jsonl" > "$out/usage.html"
 
