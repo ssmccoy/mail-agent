@@ -29,6 +29,11 @@ macro index,pager A "<pipe-message>git-am-mail .<enter>" "apply the series here"
 macro index,pager \eA "<pipe-message>git-am-mail<enter>" "apply it where it was written"
 macro attach W "<enter-command>set pipe_decode<enter><pipe-entry>w3m -T text/html<enter><enter-command>unset pipe_decode<enter>" "read this part in w3m"
 
+# Deleting a thread retires the agent's side of it as well: the
+# worktree, anything queued, and the session itself. The mail is
+# recoverable until the mailbox is synced; the thread is not.
+macro index,pager \cd "<pipe-message>mail-agent-forget-mail<enter><delete-thread>" "forget the thread and delete it"
+
 # Render the parts the agent sends; see mailcap.example.
 auto_view text/markdown text/html application/mbox
 alternative_order text/plain text/html

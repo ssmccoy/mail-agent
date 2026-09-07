@@ -1,0 +1,38 @@
+#!/bin/sh
+#
+# Retire the thread a message belongs to. Reads the message on standard
+# input, as mutt's pipe-message supplies it.
+#
+# Bind it beside the key that deletes a thread:
+#     macro index,pager \cd "<pipe-message>mail-agent-forget-mail<enter><delete-thread>"
+
+PATH=/usr/bin:/bin:"$HOME/bin"
+
+export PATH
+
+message=$(mktemp)
+
+trap 'rm -f "$message"' EXIT
+
+cat > "$message"
+
+session=$(mhdr -h x-mail-session "$message" | head -1)
+
+# A message we sent carries the session in a header; one the sender
+# wrote carries it only in the thread it replies to.
+if [ -z "$session" ]; then
+    session=$({
+        mhdr -h references "$message"
+        mhdr -h in-reply-to "$message"
+        mhdr -h message-id "$message"
+    } | tr " " "\n" \
+        | sed -n 's/^<c\.\([0-9a-f-]\{36\}\)\..*>$/\1/p' \
+        | tail -1)
+fi
+
+if [ -z "$session" ]; then
+    echo "no agent thread in this message; deleting the mail only" >&2
+    exit 0
+fi
+
+mail-agent-forget "$session"

@@ -187,11 +187,12 @@ Diff colouring is scoped to patch mail by a message-hook on the `[PATCH`
 subject, since the rules that paint a removal red cannot tell one from a
 markdown bullet.
 
-| key     | in           | does                                      |
-|---------|--------------|-------------------------------------------|
-| `A`     | index, pager | apply the series to the tree mutt runs in |
-| `esc-A` | index, pager | apply it to the repository the agent used |
-| `W`     | attachments  | open a part in w3m, for scrolling         |
+| key      | in           | does                                      |
+|----------|--------------|-------------------------------------------|
+| `A`      | index, pager | apply the series to the tree mutt runs in |
+| `esc-A`  | index, pager | apply it to the repository the agent used |
+| `W`      | attachments  | open a part in w3m, for scrolling         |
+| `ctrl-d` | index, pager | delete the thread and retire it           |
 
 Start mutt from the project directory and `A` applies the patches there. Any
 subdirectory works. When the tree is not the one the series was written
