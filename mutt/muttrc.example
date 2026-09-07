@@ -7,9 +7,13 @@ set folder      = ~/mail
 set spoolfile   = +inbox
 mailboxes +inbox +claude +codex +archive +sent +drafts +trash
 
-# Reach the agents by name.
-alias claude Claude <you+claude@your.host>
-alias codex  Codex  <you+codex@your.host>
+# Reach the agents by name, one line per row of the agents table. A
+# backquoted command in a configuration file is run when mutt reads it,
+# though $(...) is not, so the host is not written out twelve times.
+alias claude Claude <you+claude@`cat /etc/mailname`>
+alias fable  Fable  <you+fable@`cat /etc/mailname`>
+alias codex  Codex  <you+codex@`cat /etc/mailname`>
+alias sol    Sol    <you+sol@`cat /etc/mailname`>
 
 # Forwarding to an agent has to keep the subject, since the first word
 # of it names the project; the default format replaces it with the
