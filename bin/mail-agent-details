@@ -59,7 +59,10 @@ fi
 
 printf "state     %s, %s waiting\n" "$state" "$waiting"
 printf "project   %s\n" "$(cat "$work/project" 2>/dev/null)"
-printf "branch    %s\n" "$(git -C "$work/repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+# The checkout is on a branch named for the session; the branch that
+# matters is the one the thread was asked for.
+printf "branch    %s\n" "$(cat "$work/branch" 2>/dev/null ||
+    git -C "$work/repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 printf "base      %s\n" "$(cut -c1-12 "$work/base" 2>/dev/null)"
 
 if [ -f "$work/cost" ]; then
