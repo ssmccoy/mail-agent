@@ -15,10 +15,10 @@ export PATH
 
 agent="$HOME/mail/.agent"
 config="$agent/claude"
-follow=yes
+follow=no
 
-if [ "$1" = "-1" ]; then
-    follow=no
+if [ "$1" = "-f" ]; then
+    follow=yes
     shift
 fi
 
