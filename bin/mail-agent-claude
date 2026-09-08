@@ -83,10 +83,13 @@ if [ "$status" -eq 124 ]; then
     exit 124
 fi
 
-result=$(jq -r 'select(.type=="result")|.result // empty' "$work/events.jsonl" \
-    2>/dev/null | tail -1)
-failed=$(jq -r 'select(.type=="result")|.is_error // false' "$work/events.jsonl" \
-    2>/dev/null | tail -1)
+# The result text spans lines, so the last record is taken as a record.
+# Reading the stream and keeping the last line yields whatever the model
+# closed with -- a fence, a blank -- and drops the answer above it.
+result=$(jq -r -s 'map(select(.type=="result"))|last|.result // empty' \
+    "$work/events.jsonl" 2>/dev/null)
+failed=$(jq -r -s 'map(select(.type=="result"))|last|.is_error // false' \
+    "$work/events.jsonl" 2>/dev/null)
 
 if [ "$failed" = "true" ] || [ "$status" -ne 0 ]; then
     if [ -z "$result" ]; then
@@ -98,8 +101,8 @@ if [ "$failed" = "true" ] || [ "$status" -ne 0 ]; then
 fi
 
 # The fork's id is not the one we passed in, so read it from the stream.
-new=$(jq -r 'select(.type=="result")|.session_id // empty' "$work/events.jsonl" \
-    | tail -1)
+new=$(jq -r -s 'map(select(.type=="result"))|last|.session_id // empty' \
+    "$work/events.jsonl")
 [ -n "$new" ] && printf "%s\n" "$new" > "$work/agent-session"
 
 printf "%s\n" "$result" > "$out/reply.md"

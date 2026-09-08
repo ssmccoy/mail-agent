@@ -85,3 +85,19 @@ invoke_driver() {
         [ "$status" -eq 124 ]
     done
 }
+
+@test "a claude reply ending in a fence keeps every line" {
+    prepare_driver
+
+    jq -c 'if .type == "result" then
+            .result = "The answer.\n\n```\nkubectl get pods\n```"
+        else . end' \
+        "$project_root/test/fixtures/claude.jsonl" > "$case_root/claude.jsonl"
+
+    run invoke_driver claude investigate
+
+    [ "$status" -eq 0 ]
+    grep -Fx "The answer." "$case_root/result/reply.md"
+    grep -Fx "kubectl get pods" "$case_root/result/reply.md"
+    [ "$(cat "$work/agent-session")" = "fixture-session" ]
+}
