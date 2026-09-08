@@ -29,7 +29,8 @@ sent="<c.$session.$(date +%s%N)@$fqdn>"
 {
     printf "To: %s\n" "$(mhdr -h from "$incoming")"
     printf "From: %s <%s+%s@%s>\n" "$name" "$user" "$agent" "$fqdn"
-    printf "Subject: Re: %s\n" "$(mhdr -h subject "$incoming")"
+    printf "Subject: Re: %s\n" "$(mhdr -h subject "$incoming" \
+        | sed -E 's/^([[:space:]]*[Rr][Ee]:[[:space:]]*)+//')"
     printf "In-Reply-To: %s\n" "$(mhdr -h message-id "$incoming")"
     printf "References: %s %s\n" \
         "$(mhdr -h references "$incoming")" \
