@@ -65,6 +65,10 @@ printf "branch    %s\n" "$(cat "$work/branch" 2>/dev/null ||
     git -C "$work/repo" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 printf "base      %s\n" "$(cut -c1-12 "$work/base" 2>/dev/null)"
 
+if [ -f "$work/effort" ]; then
+    printf "effort    %s\n" "$(cat "$work/effort")"
+fi
+
 if [ -f "$work/cost" ]; then
     awk '{ total += $2 } END {
         printf "turns     %d, $%.2f in total\n", NR, total

@@ -3,7 +3,7 @@
 # Run one turn of a mail thread with codex and write what the harness
 # needs to compose a reply.
 #
-# Usage: mail-agent-codex <work> <out> <prompt> <mode> [model]
+# Usage: mail-agent-codex <work> <out> <prompt> <mode> [model] [effort]
 #
 # The interface matches mail-agent-claude: the session lives in
 # <work>/agent-session, the outputs land in <out>, and the exit status
@@ -18,9 +18,10 @@ out=$2
 prompt=$3
 mode=$4
 model=$5
+effort=$6
 
 if [ -z "$mode" ]; then
-    echo "usage: mail-agent-codex <work> <out> <prompt> <mode> [model]" >&2
+    echo "usage: mail-agent-codex <work> <out> <prompt> <mode> [model] [effort]" >&2
     exit 64
 fi
 
@@ -29,6 +30,15 @@ if [ -n "$model" ] && [ "$model" != "-" ]; then
     with_model="--model $model"
 else
     with_model=""
+fi
+
+# Reasoning depth is a config key rather than a flag. A level the model
+# does not offer is refused by the CLI, and the turn is reported as
+# failed with what it said.
+if [ -n "$effort" ] && [ "$effort" != "-" ]; then
+    with_effort="-c model_reasoning_effort=$effort"
+else
+    with_effort=""
 fi
 
 limit=${MAIL_AGENT_TIMEOUT:-60m}
@@ -79,7 +89,7 @@ fi
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$mode").cfg" $with_repo \
-        "$HOME/.local/bin/codex" "$@" --json -o "$last" $with_model \
+        "$HOME/.local/bin/codex" "$@" --json -o "$last" $with_model $with_effort \
         -c "developer_instructions=$(cat "$HOME/.config/mail-agent/instructions.md")" \
         --dangerously-bypass-approvals-and-sandbox \
         --skip-git-repo-check < "$prompt"

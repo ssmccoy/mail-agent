@@ -97,6 +97,15 @@ message_branch() {
         | head -1
 }
 
+# How hard the model is asked to think. The levels are the ones both
+# CLIs name; a model that does not offer the one asked for says so
+# itself when the turn starts.
+message_effort() {
+    mshow -R "$1" 2>/dev/null </dev/null \
+        | sed -n 's/^!effort[[:space:]]\{1,\}\([a-z]\{1,\}\).*$/\1/p' \
+        | head -1
+}
+
 # Drop the quote a reply trails behind it, but keep quoting that has
 # been answered inline: everything up to the last line the sender wrote
 # themselves is theirs, and the attribution above a trailing quote goes
@@ -105,6 +114,7 @@ message_body() {
     mshow -R "$1" 2>/dev/null </dev/null \
         | sed -e '/^!\(investigate\|plan\|execute\|research\)[[:space:]]*$/d' \
               -e '/^!branch[[:space:]]/d' \
+              -e '/^!effort[[:space:]]/d' \
         | awk '
             {
                 line[NR] = $0
@@ -309,7 +319,8 @@ if [ -n "$fork" ]; then
 
     mkdir -p "$cwork"
     cp "$work/agent" "$cwork/"
-    cp "$work/project" "$work/branch" "$work/research" "$cwork/" 2>/dev/null
+    cp "$work/project" "$work/branch" "$work/research" "$work/effort" \
+        "$cwork/" 2>/dev/null
     mhdr -h subject "$message" > "$cwork/subject"
     printf "%s\n" "$parent_session" > "$cwork/agent-session"
     printf "%s\n" "$parent_commit" > "$cwork/base"
@@ -401,10 +412,10 @@ if [ -z "$mode" ]; then
     # investigate, and the sender would be told edits are refused
     # without being told why.
     if [ -n "$unknown" ] && [ "$unknown" != "branch" ] &&
-       [ "$unknown" != "details" ]; then
+       [ "$unknown" != "effort" ] && [ "$unknown" != "details" ]; then
         printf "%s\n\n    %s\n\n%s\n" \
             "There is no !$unknown directive, so the turn did not run." \
-            "!investigate  !plan  !execute  !research  !branch <name>  !details" \
+            "!investigate  !plan  !execute  !research  !branch <name>  !effort <level>  !details" \
             "Resend with one of those." > "$scratch/body"
 
         reply "$scratch/body" "$message"
@@ -414,6 +425,31 @@ if [ -z "$mode" ]; then
 
     mode=investigate
 fi
+
+# Effort stays with the thread the way the alias does: a thread told to
+# think hard keeps doing so until a later message says otherwise, since
+# a question worth the depth is rarely one message long.
+asked=$(message_effort "$message")
+
+if [ -n "$asked" ]; then
+    case $asked in
+        low|medium|high|xhigh|max)
+            printf "%s\n" "$asked" > "$work/effort"
+            ;;
+        *)
+            printf "%s\n\n    %s\n\n%s\n" \
+                "There is no \"$asked\" effort level, so the turn did not run." \
+                "low  medium  high  xhigh  max" \
+                "Resend with one of those." > "$scratch/body"
+
+            reply "$scratch/body" "$message"
+            rm -f "$message"
+            exit 0
+            ;;
+    esac
+fi
+
+effort=$(cat "$work/effort" 2>/dev/null)
 
 # A thread with no repository has nothing to commit to, so an execute
 # turn there would work and deliver nothing.
@@ -451,7 +487,7 @@ started=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
 touch "$scratch/mark"
 
 MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-$driver" \
-    "$work" "$scratch" "$scratch/prompt" "$mode" "$model" \
+    "$work" "$scratch" "$scratch/prompt" "$mode" "$model" "$effort" \
     2> "$scratch/stderr"
 
 status=$?

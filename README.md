@@ -151,6 +151,18 @@ edits are refused, and `!execute` in a thread that has no repository is
 answered with a note saying there is nothing to commit to rather than running a
 turn that would deliver nothing.
 
+`!effort <level>` says how hard to think: `low`, `medium`, `high`, `xhigh` or
+`max`. It stays with the thread until another message changes it, so a question
+worth the depth need only ask once. Without it each CLI uses its own default,
+which differs by model. A level a model does not offer is refused by the CLI
+itself and comes back as a failed turn quoting what it said.
+
+    To: astra
+    Subject: foundry: why does the dcfab poller wedge under load
+
+    !effort max
+    It wedges about once a week and I have never caught it in the act.
+
 `!details` is not a mode: it answers from what is already on disk, replying
 with the thread’s details and running no turn.
 

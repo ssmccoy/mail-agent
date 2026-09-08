@@ -5,6 +5,9 @@
 #
 # Usage: mail-agent-pi <work> <out> <prompt> <mode>
 #
+# The harness passes a model and an effort level after the mode; a local
+# model offers neither, so both are ignored.
+#
 # The interface matches mail-agent-claude: the session lives in
 # <work>/agent-session, the outputs land in <out>, and the exit status
 # says whether a retry is worth anything.

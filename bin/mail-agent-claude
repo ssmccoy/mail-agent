@@ -3,7 +3,7 @@
 # Run one turn of a mail thread with Claude and write what the harness
 # needs to compose a reply.
 #
-# Usage: mail-agent-claude <work> <out> <prompt> <mode> [model]
+# Usage: mail-agent-claude <work> <out> <prompt> <mode> [model] [effort]
 #
 # Reads and writes <work>/agent-session, so the first turn starts a
 # session and each later turn forks it. Writes into <out>: reply.md, the
@@ -21,9 +21,10 @@ out=$2
 prompt=$3
 mode=$4
 model=$5
+effort=$6
 
 if [ -z "$mode" ]; then
-    echo "usage: mail-agent-claude <work> <out> <prompt> <mode> [model]" >&2
+    echo "usage: mail-agent-claude <work> <out> <prompt> <mode> [model] [effort]" >&2
     exit 64
 fi
 
@@ -32,6 +33,15 @@ if [ -n "$model" ] && [ "$model" != "-" ]; then
     with_model="--model $model"
 else
     with_model=""
+fi
+
+# So does an effort the thread never asked for. A level the model does
+# not offer is refused by the CLI, and the turn is reported as failed
+# with what it said.
+if [ -n "$effort" ] && [ "$effort" != "-" ]; then
+    with_effort="--effort $effort"
+else
+    with_effort=""
 fi
 
 limit=${MAIL_AGENT_TIMEOUT:-60m}
@@ -82,7 +92,7 @@ fi
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
         --append-system-prompt-file "$HOME/.config/mail-agent/instructions.md" \
         --permission-mode "$(permission_mode "$mode")" \
-        $with_model $session < "$prompt"
+        $with_model $with_effort $session < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
 
 status=$?

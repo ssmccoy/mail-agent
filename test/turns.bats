@@ -233,3 +233,28 @@ load helper
     [ "$(wc -l < "$work/turns")" -eq 1 ]
     grep -rq "nothing to execute against" "$case_root/outgoing"
 }
+
+@test "effort is passed to the driver and kept by the thread" {
+    new_repository
+    message "$queue/001" $'!effort xhigh\nPlease inspect.'
+    run_turn
+
+    [ "$(cat "$work/effort")" = xhigh ]
+    grep -Fx xhigh "$case_root/driver-arguments"
+    ! grep -Fq "!effort" "$case_root/prompts"
+    mkdir -p "$queue"
+    message "$queue/002"
+    run_turn
+
+    [ "$(grep -c '^xhigh$' "$case_root/driver-arguments")" -eq 2 ]
+}
+
+@test "an effort level that is not one of the five is refused" {
+    new_repository
+    message "$queue/001" $'!effort ludicrous\nPlease inspect.'
+    run_turn
+
+    [ ! -e "$case_root/driver-arguments" ]
+    [ ! -e "$work/effort" ]
+    grep -rq "no \"ludicrous\" effort level" "$case_root/outgoing"
+}
