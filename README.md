@@ -89,9 +89,15 @@ answers and the model it runs:
     mini          codex    gpt-5.4-mini
 
 A model of `-` leaves the driver’s own default alone, which is what the
-driver’s own name is for. Adding a model is that line and nothing else: one
-`~/.forward` serves every address, so there is no spool or forward file to
-create, and a mutt alias is worth adding only for typing.
+driver’s own name is for. Adding a model is that line plus `make forward`,
+which writes a `~/.forward+<alias>` per row so a message to the new address
+reaches the hook without landing in the inbox; a mutt alias is worth adding
+only for typing.
+
+The bare `~/.forward` still files plain mail, and the agents’ replies, in
+the inbox, since a reply is addressed to the plain address. Only outbound
+mail to `you+<alias>` is diverted, so a sent message goes to the agent
+rather than back to you.
 
 A thread keeps the alias it started with, so a reply to Fable is answered by
 Fable. The subject names the project; the first line of the body names the
@@ -328,7 +334,8 @@ agent’s.
 
 | path                                         | what                              |
 |----------------------------------------------|-----------------------------------|
-| `~/.forward+<agent>`                         | delivery to the spool and hook    |
+| `~/.forward`                                 | plain mail and replies to inbox   |
+| `~/.forward+<alias>`                         | outbound to an agent, hook only   |
 | `~/bin/mail-agent-hook`                      | queues an arriving message        |
 | `~/bin/mail-agent-run`                       | runs one turn and replies         |
 | `~/bin/mail-agent-render`                    | transcript to HTML                |
