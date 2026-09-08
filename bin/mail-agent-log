@@ -58,10 +58,22 @@ session=$(basename "$work")
 name=$(cat "$work/agent" 2>/dev/null)
 records="$work/events.jsonl"
 
-# A turn that began before the stream was kept, and any turn of an
-# older thread, is still in Claude's own transcript.
-if [ ! -f "$records" ] && [ "$name" != codex ]; then
-    records=$(ls "$agent"/claude/projects/*/"$session.jsonl" 2>/dev/null | head -1)
+# The alias names the driver; the driver shapes the events and names the
+# step program that reads them. An alias absent from the table is its own
+# driver.
+driver=$(awk -v alias="$name" '$1 == alias { print $2; exit }' \
+    "$HOME/.config/mail-agent/agents")
+
+if [ -z "$driver" ]; then
+    driver=$name
+fi
+
+# A turn that began before the stream was kept, and any turn of an older
+# thread, is still in Claude's own transcript, named for the session that
+# produced the turn rather than for the thread.
+if [ ! -f "$records" ] && [ "$driver" = claude ]; then
+    records=$(ls "$agent"/claude/projects/*/"$(cat "$work/agent-session" 2>/dev/null)".jsonl \
+        2>/dev/null | head -1)
 fi
 
 if [ -z "$records" ] || [ ! -f "$records" ]; then
@@ -69,11 +81,11 @@ if [ -z "$records" ] || [ ! -f "$records" ]; then
     exit 66
 fi
 
-# Each agent's events have their own shapes; the lines they make do not.
-if [ "$name" = codex ]; then
-    steps="$HOME/.config/mail-agent/steps-codex.jq"
-else
+# Each driver's events have their own shapes; the lines they make do not.
+if [ "$driver" = claude ]; then
     steps="$HOME/.config/mail-agent/steps.jq"
+else
+    steps="$HOME/.config/mail-agent/steps-$driver.jq"
 fi
 
 if [ "$follow" = no ]; then
