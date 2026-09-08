@@ -50,15 +50,12 @@ profile() {
     esac
 }
 
-# Claude finds the thread's memory by searching upward from the clone;
-# codex reads AGENTS.md from the repository and from its own home, and
-# looks nowhere else, so write it there. Both files are rewritten each
-# turn, which is what keeps an edited rule taking effect.
-{
-    cat "$HOME/.claude/CLAUDE.md" 2>/dev/null
-    printf "\n"
-    cat "$work/CLAUDE.md"
-} > "$HOME/mail/.agent/codex/AGENTS.md"
+# The global rules live in ~/.config/mail-agent/codex-instructions.md, to
+# which CODEX_HOME/AGENTS.md is a symlink; no turn rewrites it. The mail
+# rules, the same for every thread, are handed to codex as
+# developer_instructions on the command line below, so they reach the
+# prompt above a discovered AGENTS.md and the agent is not trusted to find
+# them.
 
 if [ -f "$work/agent-session" ]; then
     set -- exec resume "$(cat "$work/agent-session")" -
@@ -72,6 +69,7 @@ fi
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$mode").cfg" -r "$repo" \
         "$HOME/.local/bin/codex" "$@" --json -o "$last" $with_model \
+        -c "developer_instructions=$(cat "$HOME/.config/mail-agent/instructions.md")" \
         --dangerously-bypass-approvals-and-sandbox \
         --skip-git-repo-check < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"

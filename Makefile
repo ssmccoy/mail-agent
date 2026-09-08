@@ -12,7 +12,7 @@ BIN = $(PREFIX)/bin
 CONFIG = $(PREFIX)/.config
 UNITS = $(CONFIG)/systemd/user
 SCRIPTS = $(notdir $(wildcard bin/*))
-CONFIGS = $(filter-out projects.example,$(notdir $(wildcard config/*)))
+CONFIGS = $(filter-out projects.example instructions.md,$(notdir $(wildcard config/*)))
 PROFILES = $(notdir $(wildcard landlock/*))
 
 install:
@@ -20,6 +20,7 @@ install:
 	install -m 755 $(addprefix bin/,$(SCRIPTS)) $(BIN)
 	install -m 644 $(addprefix landlock/,$(PROFILES)) $(CONFIG)/landlock
 	install -m 644 systemd/mail-agent-drain.service systemd/mail-agent-drain.timer $(UNITS)
+	install -m 644 config/instructions.md $(CONFIG)/mail-agent/instructions.md
 	for file in $(CONFIGS); do \
 	    test -e $(CONFIG)/mail-agent/$$file || \
 	        install -m 644 config/$$file $(CONFIG)/mail-agent/$$file; \

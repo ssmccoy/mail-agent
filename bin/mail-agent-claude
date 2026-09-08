@@ -53,6 +53,11 @@ else
         "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/")
 fi
 
+# The mail rules are appended to the system prompt on the command line,
+# above a discovered CLAUDE.md, rather than left for the agent to find.
+# They are the same for every thread, so one installed file serves all,
+# read out here and passed as text.
+#
 # The stream carries the whole turn: the session it ran under, every
 # record the transcript would hold, and the result with its cost. The
 # transcript on disk is then only history.
@@ -63,6 +68,7 @@ fi
         -c "$HOME/.config/landlock/mail-agent-claude.cfg" -r "$repo" \
         "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
+        --append-system-prompt "$(cat "$HOME/.config/mail-agent/instructions.md")" \
         --permission-mode "$(permission_mode "$mode")" \
         $with_model $resume "$session" < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
