@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"fixture-session"}
+{"type":"item.completed","item":{"type":"command_execution","command":"/bin/sh -lc 'pwd'","exit_code":0,"aggregated_output":"/example"}}
+{"type":"item.completed","item":{"type":"agent_message","text":"Inspection complete."}}
+{"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":3,"output_tokens":4,"reasoning_output_tokens":2}}

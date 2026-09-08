@@ -1,0 +1,3 @@
+{"type":"assistant","timestamp":"2026-01-01T00:00:00Z","message":{"content":[{"type":"thinking","thinking":"Inspect <script> & input."},{"type":"tool_use","id":"call1","name":"Bash","input":{"command":"printf '<tag>'","description":"Inspect output"}}]}}
+{"type":"user","timestamp":"2026-01-01T00:00:01Z","message":{"content":[{"type":"tool_result","tool_use_id":"call1","content":"<tag> & value"}]}}
+{"type":"result","session_id":"fixture-session","result":"Inspection complete.","is_error":false,"total_cost_usd":0.25,"duration_ms":1200,"num_turns":1,"modelUsage":{}}

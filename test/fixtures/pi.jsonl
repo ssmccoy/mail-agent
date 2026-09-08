@@ -1,0 +1,2 @@
+{"type":"session","id":"fixture-session"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Inspection complete."}],"usage":{"input":12,"output":4,"reasoning":2}}}

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+printf "%s\n" "$@" > "$CASE_ROOT/launcher-arguments"
+
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        -c|-r|-w) shift 2 ;;
+        *) break ;;
+    esac
+done
+
+exec "$@"

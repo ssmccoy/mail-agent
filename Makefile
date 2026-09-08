@@ -88,3 +88,18 @@ mutt:
 	@cat mutt/muttrc.example
 
 .PHONY: install spool enable notify check mutt
+
+# Offline tests use private homes, local repositories, and captured mail.
+test:
+	./test/run
+
+test-shells:
+	TEST_SHELL=/bin/dash ./test/run
+	TEST_SHELL='/bin/bash --posix' ./test/run
+
+.PHONY: test test-shells
+
+test-syntax:
+	./test/check
+
+.PHONY: test-syntax

@@ -88,6 +88,6 @@ fi
 mkdir -p "$root/queue/$session"
 mv "$message" "$root/queue/$session/$(date +%s%N)"
 
-systemd-run --user --collect --quiet \
+"${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
     --unit="mail-agent-$session-$(date +%s%N)" \
     flock "$root/lock/$session" "$HOME/bin/mail-agent-run" "$session"

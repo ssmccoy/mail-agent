@@ -293,7 +293,7 @@ if [ -n "$fork" ]; then
 
     # A fork is its own thread with its own lock, so hand it to a fresh
     # worker rather than running it under this one's.
-    systemd-run --user --collect --quiet \
+    "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
         --unit="mail-agent-$child-$(date +%s%N)" \
         flock "$root/lock/$child" "$HOME/bin/mail-agent-run" "$child"
 
@@ -467,7 +467,7 @@ mail_patches() {
             # line per paragraph does it every time.
             sed "1{/^From [0-9a-f]\{40\} /d;}" "$patch" \
                 | "$HOME/bin/mail-agent-rewrap" "$wrap"
-        } | sendmail -t
+        } | "${MAIL_AGENT_SENDMAIL:-sendmail}" -t
     done
 
     printf "%s\n" "$head" > "$work/mailed"

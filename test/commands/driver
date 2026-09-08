@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+work=$1
+out=$2
+prompt=$3
+
+printf "%s\n" "$@" >> "$CASE_ROOT/driver-arguments"
+cat "$prompt" >> "$CASE_ROOT/prompts"
+
+if [ -f "$CASE_ROOT/status" ]; then
+    status=$(cat "$CASE_ROOT/status")
+
+    if [ "$status" -ne 0 ]; then
+        echo "fixture driver failed" >&2
+        exit "$status"
+    fi
+fi
+
+if [ -f "$CASE_ROOT/commit" ]; then
+    printf "changed\n" > "$work/repo/file"
+    git -C "$work/repo" add file
+    git -C "$work/repo" commit -qm "Change example file"
+    rm "$CASE_ROOT/commit"
+fi
+
+printf "The requested inspection is complete.\n" > "$out/reply.md"
+printf "0.25\n" > "$out/cost"
+printf "fixture-session\n" > "$work/agent-session"

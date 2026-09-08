@@ -37,7 +37,7 @@ repo=$(cat "$work/project")
 # The final message is written by codex itself, so it has to land
 # somewhere the sandbox can write: the harness scratch directory is
 # outside it.
-last=/tmp/mail-agent/reply-$$.md
+last=${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}/reply-$$.md
 
 # codex's own sandbox cannot initialise inside landlock's, so landlock
 # is the only one, and the distinction between a turn that may write and

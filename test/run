@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/.."
+
+for tool in bats git mhdr mshow mmime jq node perl pandoc flock timeout; do
+    command -v "$tool" >/dev/null 2>&1 || {
+        printf "missing test dependency: %s\n" "$tool" >&2
+        exit 69
+    }
+done
+
+# Keep all test writes within the checkout, including Bats's own files.
+scratch=$(mktemp -d "$PWD/test/.run.XXXXXXXX")
+
+trap 'rm -rf "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+TMPDIR="$scratch" bats --tap "$@" test/*.bats

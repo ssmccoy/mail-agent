@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+# Record scheduling without starting a detached process.
+printf "%s\n" "$@" >> "$CASE_ROOT/scheduled"

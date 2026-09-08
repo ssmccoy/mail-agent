@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/.."
+
+for script in bin/* test/run test/check test/commands/*; do
+    case $(head -1 "$script") in
+        '#!/bin/sh') sh -n "$script" ;;
+        '#!/usr/bin/perl') perl -c "$script" ;;
+        '#!/usr/bin/env node') node --check "$script" ;;
+    esac
+done
+
+bash -n test/helper.bash

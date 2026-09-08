@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+name=${0##*/}
+
+printf "%s\n" "$@" > "$CASE_ROOT/cli-arguments"
+cat > "$CASE_ROOT/cli-prompt"
+
+if [ -f "$CASE_ROOT/status" ]; then
+    exit "$(cat "$CASE_ROOT/status")"
+fi
+
+if [ "$name" = codex ]; then
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "-o" ]; then
+            printf "Inspection complete.\n" > "$2"
+            break
+        fi
+
+        shift
+    done
+fi
+
+cat "$CASE_ROOT/$name.jsonl"

@@ -47,6 +47,6 @@ sent="<c.$session.$(date +%s%N)@$fqdn>"
     printf "\n"
 
     cat "$body"
-} | mmime | sendmail -t
+} | mmime | "${MAIL_AGENT_SENDMAIL:-sendmail}" -t
 
 printf "%s\n" "$sent"
