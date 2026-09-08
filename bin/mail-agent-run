@@ -202,6 +202,10 @@ if [ ! -d "$work" ]; then
 
     printf "%s\n" "$branch" > "$work/branch"
     git -C "$work/repo" rev-parse HEAD > "$work/base"
+
+    # A thread with no fork above it is its own root; a fork inherits this
+    # below. Deletion retires everything that shares a root.
+    printf "%s\n" "$session" > "$work/root"
 fi
 
 # A working directory that exists without a recorded project has lost
@@ -265,6 +269,9 @@ if [ -n "$fork" ]; then
     mhdr -h subject "$message" > "$cwork/subject"
     printf "%s\n" "$parent_session" > "$cwork/agent-session"
     printf "%s\n" "$parent_commit" > "$cwork/base"
+
+    # The fork joins its parent's tree, so deleting either deletes both.
+    { cat "$work/root" 2>/dev/null || printf "%s\n" "$session"; } > "$cwork/root"
 
     git -C "$shared" worktree add --quiet -b "mail/$child" \
         "$cwork/repo" "$parent_commit"

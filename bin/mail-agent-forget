@@ -1,20 +1,23 @@
 #!/bin/sh
 #
-# Retire a thread: its worktree, its working directory, anything still
-# queued for it, and its transcript.
+# Retire a thread and every fork grown from it: their worktrees, working
+# directories, anything still queued, and their agent sessions.
 #
 # Usage: mail-agent-forget [-q] <session> [...]
 #
 #   -q   say nothing about a session that is not there
 #
-# The thread cannot be continued afterwards. Its commits survive only in
-# the patches already mailed.
+# A thread and its forks share a root recorded in each working directory,
+# so retiring any one of them retires the whole tree. The threads cannot
+# be continued afterwards; their commits survive only in the patches
+# already mailed.
 
 PATH=/usr/bin:/bin
 
 export PATH
 
 root="$HOME/mail/.agent"
+agents="$HOME/.config/mail-agent/agents"
 quiet=no
 
 if [ "$1" = "-q" ]; then
@@ -33,21 +36,77 @@ complain() {
     fi
 }
 
-for prefix in "$@"; do
-    work=$(ls -d "$root"/work/"$prefix"* 2>/dev/null | head -1)
+# An alias names the driver that answers it; the driver names where its
+# sessions are kept. An alias absent from the table is its own driver.
+driver_of() {
+    driver=$(awk -v alias="$1" '$1 == alias { print $2; exit }' "$agents")
 
-    if [ -z "$work" ]; then
-        complain "no thread $prefix"
-        continue
+    if [ -z "$driver" ]; then
+        driver=$1
     fi
 
-    session=$(basename "$work")
+    printf "%s\n" "$driver"
+}
+
+# The agent sessions a thread produced are named in its turns ledger, one
+# per response, and the latest is in agent-session.
+session_ids() {
+    {
+        awk '{ print $2 }' "$1/turns" 2>/dev/null
+        cat "$1/agent-session" 2>/dev/null
+    } | sort -u
+}
+
+# Each driver keeps its sessions in its own store, so clear them where
+# that driver put them.
+forget_sessions() {
+    case $2 in
+        claude)
+            # claude files sessions under the worktree it ran in, so the
+            # project directory holds this thread's and no other's.
+            enc=$(printf "%s" "$1/repo" | sed -e "s|[/.]|-|g")
+
+            rm -rf "$root/claude/projects/$enc"
+            ;;
+        codex)
+            # codex keeps a global rollout per session, named for its id.
+            for id in $(session_ids "$1"); do
+                find "$root/codex/sessions" -name "*$id.jsonl" -delete \
+                    2>/dev/null
+            done
+            ;;
+        pi)
+            for id in $(session_ids "$1"); do
+                rm -f "$root/pi"/*"_$id.jsonl"
+            done
+            ;;
+    esac
+}
+
+# Every working directory records the root of its tree, so the tree is
+# the set that shares one root.
+tree_of() {
+    want=$(cat "$root/work/$1/root" 2>/dev/null || echo "$1")
+
+    for dir in "$root"/work/*/; do
+        [ -d "$dir" ] || continue
+
+        member=$(basename "$dir")
+
+        if [ "$(cat "$dir/root" 2>/dev/null || echo "$member")" = "$want" ]; then
+            printf "%s\n" "$member"
+        fi
+    done
+}
+
+retire() {
+    work="$root/work/$1"
 
     # A running thread is a refusal worth hearing even when quiet: the
     # sender asked for it to go and it did not.
-    if ! flock -n "$root/lock/$session" true 2>/dev/null; then
-        echo "mail-agent-forget: $session is running" >&2
-        continue
+    if ! flock -n "$root/lock/$1" true 2>/dev/null; then
+        echo "mail-agent-forget: $1 is running" >&2
+        return
     fi
 
     # A worktree is registered with the clone it came from, so removing
@@ -60,16 +119,28 @@ for prefix in "$@"; do
 
         if [ -d "$shared" ]; then
             git -C "$shared" worktree prune
-            git -C "$shared" branch -D "mail/$session" > /dev/null 2>&1
+            git -C "$shared" branch -D "mail/$1" > /dev/null 2>&1
         fi
     fi
 
-    agent=$(cat "$work/agent" 2>/dev/null || echo claude)
+    forget_sessions "$work" "$(driver_of "$(cat "$work/agent" 2>/dev/null)")"
 
-    rm -rf "$work" "$root/queue/$session" "$root/lock/$session"
-    rm -rf "$root/$agent/projects"/*/"$session.jsonl"
+    rm -rf "$work" "$root/queue/$1" "$root/lock/$1"
 
     if [ "$quiet" = no ]; then
-        echo "forgot $session"
+        echo "forgot $1"
     fi
+}
+
+for prefix in "$@"; do
+    start=$(ls -d "$root"/work/"$prefix"* 2>/dev/null | head -1)
+
+    if [ -z "$start" ]; then
+        complain "no thread $prefix"
+        continue
+    fi
+
+    for session in $(tree_of "$(basename "$start")"); do
+        retire "$session"
+    done
 done
