@@ -7,13 +7,30 @@ set folder      = ~/mail
 set spoolfile   = +inbox
 mailboxes +inbox +claude +codex +archive +sent +drafts +trash
 
+# A turn is a thread, so read the folder threaded. sort_aux floats the
+# thread with the newest reply to the bottom; strict_threads off lets a
+# reply whose parent is filed elsewhere still join by subject, since a
+# sent message lives in +sent, not the inbox it is answering into.
+set sort         = threads
+set sort_aux     = last-date-received
+set strict_threads = no
+
 # Reach the agents by name, one line per row of the agents table. A
 # backquoted command in a configuration file is run when mutt reads it,
 # though $(...) is not, so the host is not written out twelve times.
-alias claude Claude <you+claude@`cat /etc/mailname`>
-alias fable  Fable  <you+fable@`cat /etc/mailname`>
-alias codex  Codex  <you+codex@`cat /etc/mailname`>
-alias sol    Sol    <you+sol@`cat /etc/mailname`>
+alias claude     Claude     <you+claude@`cat /etc/mailname`>
+alias fable      Fable      <you+fable@`cat /etc/mailname`>
+alias opus       Opus       <you+opus@`cat /etc/mailname`>
+alias sonnet     Sonnet     <you+sonnet@`cat /etc/mailname`>
+alias haiku      Haiku      <you+haiku@`cat /etc/mailname`>
+
+alias codex      Codex      <you+codex@`cat /etc/mailname`>
+alias astra      Astra      <you+astra@`cat /etc/mailname`>
+alias sol        Sol        <you+sol@`cat /etc/mailname`>
+alias terra      Terra      <you+terra@`cat /etc/mailname`>
+alias luna       Luna       <you+luna@`cat /etc/mailname`>
+alias mini       Mini       <you+mini@`cat /etc/mailname`>
+alias codex-mini Codex-mini <you+codex-mini@`cat /etc/mailname`>
 
 # Forwarding to an agent has to keep the subject, since the first word
 # of it names the project; the default format replaces it with the
