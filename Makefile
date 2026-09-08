@@ -33,11 +33,14 @@ install:
 # The bare .forward governs plain mail and the agents' replies, which are
 # addressed to the plain address, so it files them in the inbox and pipes
 # a copy to the hook. A message to you+<alias> is outbound to an agent; a
-# .forward+<alias> per row of the agents table pipes it to the hook alone,
-# so a sent message reaches the agent without landing back in the inbox.
+# .forward+<alias> per row of the agents table files it in mail/agents
+# and pipes it to the hook, so a sent message reaches the agent and is
+# readable afterwards without crowding the inbox it will be answered in.
 forward:
 	install -d -m 700 $(PREFIX)/mail/inbox/cur $(PREFIX)/mail/inbox/new \
 	    $(PREFIX)/mail/inbox/tmp
+	install -d -m 700 $(PREFIX)/mail/agents/cur $(PREFIX)/mail/agents/new \
+	    $(PREFIX)/mail/agents/tmp
 	install -d -m 700 $(PREFIX)/mail/.agent/queue $(PREFIX)/mail/.agent/lock \
 	    $(PREFIX)/mail/.agent/work $(PREFIX)/mail/.agent/repos \
 	    $(PREFIX)/mail/.agent/claude $(PREFIX)/mail/.agent/codex
@@ -45,8 +48,8 @@ forward:
 	    '$(PREFIX)' '$(PREFIX)' > $(PREFIX)/.forward
 	chmod 600 $(PREFIX)/.forward
 	for alias in $$(awk '/^[^#]/ && $$1 { print $$1 }' config/agents); do \
-	    printf '|%s/bin/mail-agent-hook\n' '$(PREFIX)' \
-	        > $(PREFIX)/.forward+$$alias; \
+	    printf '%s/mail/agents/\n|%s/bin/mail-agent-hook\n' \
+	        '$(PREFIX)' '$(PREFIX)' > $(PREFIX)/.forward+$$alias; \
 	    chmod 600 $(PREFIX)/.forward+$$alias; \
 	done
 	@echo

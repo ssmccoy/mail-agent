@@ -5,12 +5,14 @@
 set mbox_type   = Maildir
 set folder      = ~/mail
 set spoolfile   = +inbox
-mailboxes +inbox +claude +codex +archive +sent +drafts +trash
+mailboxes +inbox +agents +archive +sent +drafts +trash
 
 # A turn is a thread, so read the folder threaded. sort_aux floats the
 # thread with the newest reply to the bottom; strict_threads off lets a
 # reply whose parent is filed elsewhere still join by subject, since a
-# sent message lives in +sent, not the inbox it is answering into.
+# sent message lives in +sent, not the inbox it is answering into. What
+# postfix delivered to an agent is filed in +agents, which is where to
+# look for a request sent from somewhere other than this reader.
 set sort         = threads
 set sort_aux     = last-date-received
 set strict_threads = no

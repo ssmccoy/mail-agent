@@ -94,10 +94,10 @@ which writes a `~/.forward+<alias>` per row so a message to the new address
 reaches the hook without landing in the inbox; a mutt alias is worth adding
 only for typing.
 
-The bare `~/.forward` still files plain mail, and the agents’ replies, in
-the inbox, since a reply is addressed to the plain address. Only outbound
-mail to `you+<alias>` is diverted, so a sent message goes to the agent
-rather than back to you.
+The bare `~/.forward` still files plain mail, and the agents’ replies, in the
+inbox, since a reply is addressed to the plain address. Only outbound mail to
+`you+<alias>` is diverted, so a sent message goes to the agent rather than back
+to you.
 
 A thread keeps the alias it started with, so a reply to Fable is answered by
 Fable. The subject names the project; the first line of the body names the
