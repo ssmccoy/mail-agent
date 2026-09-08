@@ -1,0 +1,132 @@
+#!/bin/sh
+#
+# Run one turn of a mail thread with pi and write what the harness needs
+# to compose a reply.
+#
+# Usage: mail-agent-pi <work> <out> <prompt> <mode>
+#
+# The interface matches mail-agent-claude: the session lives in
+# <work>/agent-session, the outputs land in <out>, and the exit status
+# says whether a retry is worth anything.
+#
+# pi drives a local model, so it reaches the server on localhost rather
+# than the internet, and a turn costs tokens rather than money.
+
+PATH=/usr/bin:/bin
+
+export PATH
+
+work=$1
+out=$2
+prompt=$3
+mode=$4
+
+if [ -z "$mode" ]; then
+    echo "usage: mail-agent-pi <work> <out> <prompt> <mode>" >&2
+    exit 64
+fi
+
+limit=${MAIL_AGENT_TIMEOUT:-60m}
+repo=$(cat "$work/project")
+model=${MAIL_AGENT_PI_MODEL:-ggml-org/Qwen3.5-0.8B-GGUF}
+
+# The clone is mounted rox rather than rwx for the modes that refuse
+# edits, the same distinction landlock draws for codex; the tool
+# denylist tells pi so it declines rather than being denied mid-write.
+profile() {
+    case $1 in
+        execute) echo mail-agent-pi ;;
+        *)       echo mail-agent-pi-ro ;;
+    esac
+}
+
+deny() {
+    case $1 in
+        execute) : ;;
+        *)       echo "--exclude-tools edit,write" ;;
+    esac
+}
+
+# A thread keeps its session id: the first turn generates one, later
+# turns reuse it and pi resumes the conversation stored under it.
+if [ -f "$work/agent-session" ]; then
+    session=$(cat "$work/agent-session")
+else
+    session=$(od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
+        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/")
+fi
+
+# The session store has to be writable even when the checkout is not, so
+# it lives beside the checkout rather than under it, granted rw of its
+# own. The mail rules are the installed file, the same for every thread
+# and read from the config directory the profile already grants, handed
+# to pi rather than left for discovery to climb out of the worktree.
+mkdir -p "$work/pi"
+
+(
+    cd "$work/repo" || exit 70
+
+    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
+        -c "$HOME/.config/landlock/$(profile "$mode").cfg" \
+        -r "$repo" -r "$work" -w "$work/pi" \
+        "$HOME/.local/bin/pi" -p --mode json \
+        --provider llama-cpp --model "$model" \
+        --session-id "$session" --session-dir "$work/pi" \
+        --append-system-prompt "$HOME/.config/mail-agent/instructions.md" \
+        $(deny "$mode") < "$prompt"
+) > "$work/events.jsonl" 2> "$out/stderr"
+
+status=$?
+
+if [ "$status" -eq 124 ]; then
+    exit 124
+fi
+
+if [ "$status" -ne 0 ]; then
+    tail -5 "$out/stderr" >&2
+    exit 75
+fi
+
+# pi streams the message in deltas and repeats the whole of it at
+# message_end; the last assistant one is the reply.
+jq -rs 'map(select(.type == "message_end" and .message.role == "assistant"))
+        | last | (.message.content // [])
+        | map(select(.type == "text") | .text) | join("\n")' \
+    "$work/events.jsonl" > "$out/reply.md"
+
+if [ ! -s "$out/reply.md" ]; then
+    echo "pi wrote no final message" >&2
+    tail -3 "$out/stderr" >&2
+    exit 75
+fi
+
+jq -r 'select(.type == "session") | .id' "$work/events.jsonl" | tail -1 > "$out/thread"
+
+if [ -s "$out/thread" ]; then
+    cp "$out/thread" "$work/agent-session"
+fi
+
+jq -r --arg work "$work/" -f "$HOME/.config/mail-agent/steps-pi.jq" \
+    "$work/events.jsonl" > "$out/steps.txt"
+
+# A local model reports tokens at no cost, so the table counts tokens
+# and the ledger prices the turn at zero.
+jq -rs --arg session "$(cat "$work/agent-session")" '
+    (map(select(.type == "message_end" and .message.role == "assistant"))
+        | last | .message.usage) as $usage
+    | (map(select(.type == "message_end" and .message.role == "assistant"))
+        | length) as $messages
+    | "<!doctype html><meta charset=\"utf-8\"><title>Turn cost</title>"
+    + "<style>body{font:14px/1.5 ui-monospace,monospace;margin:1.5rem}"
+    + "table{border-collapse:collapse}td,th{padding:.25rem .75rem;"
+    + "border-bottom:1px solid #ddd;text-align:left}"
+    + "td.n{text-align:right;font-variant-numeric:tabular-nums}</style>"
+    + "<table>"
+    + "<tr><td>input</td><td class=\"n\">\($usage.input)</td></tr>"
+    + "<tr><td>output</td><td class=\"n\">\($usage.output)</td></tr>"
+    + "<tr><td>reasoning</td><td class=\"n\">\($usage.reasoning)</td></tr>"
+    + "<tr><td>messages</td><td class=\"n\">\($messages)</td></tr>"
+    + "<tr><td>session</td><td class=\"n\">\($session)</td></tr>"
+    + "</table>"' "$work/events.jsonl" > "$out/usage.html"
+
+printf "0\n" > "$out/cost"
