@@ -6,7 +6,7 @@
 # Usage: mail-agent-claude <work> <out> <prompt> <mode> [model]
 #
 # Reads and writes <work>/agent-session, so the first turn starts a
-# session and later turns resume it. Writes into <out>: reply.md, the
+# session and each later turn forks it. Writes into <out>: reply.md, the
 # step summary, the cost table, the rendered reasoning, and the event
 # stream they are derived from.
 #
@@ -44,13 +44,16 @@ permission_mode() {
     esac
 }
 
+# Each turn forks the session it answers instead of advancing it in
+# place, so every response stays a point a later reply can branch from.
+# agent-session names the parent to fork; its absence is the first turn.
+# The fork mints its own id, read back from the stream afterward, since
+# --fork-session does not take one.
 if [ -f "$work/agent-session" ]; then
-    resume="--resume"
-    session=$(cat "$work/agent-session")
+    session="--resume $(cat "$work/agent-session") --fork-session"
 else
-    resume="--session-id"
-    session=$(od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
-        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/")
+    session="--session-id $(od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
+        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/")"
 fi
 
 # The mail rules are appended to the system prompt, above a discovered
@@ -71,7 +74,7 @@ fi
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
         --append-system-prompt-file "$HOME/.config/mail-agent/instructions.md" \
         --permission-mode "$(permission_mode "$mode")" \
-        $with_model $resume "$session" < "$prompt"
+        $with_model $session < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
 
 status=$?
@@ -94,7 +97,11 @@ if [ "$failed" = "true" ] || [ "$status" -ne 0 ]; then
     exit 75
 fi
 
-printf "%s\n" "$session" > "$work/agent-session"
+# The fork's id is not the one we passed in, so read it from the stream.
+new=$(jq -r 'select(.type=="result")|.session_id // empty' "$work/events.jsonl" \
+    | tail -1)
+[ -n "$new" ] && printf "%s\n" "$new" > "$work/agent-session"
+
 printf "%s\n" "$result" > "$out/reply.md"
 
 # AskUserQuestion reaches no one in a mail turn: the sender answers by

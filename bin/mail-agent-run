@@ -11,8 +11,9 @@
 # Usage: mail-agent-run <session-uuid>
 
 PATH=/usr/bin:/bin:/usr/sbin
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 
-export PATH
+export PATH XDG_RUNTIME_DIR
 
 session=$1
 
@@ -53,6 +54,13 @@ agent_field() {
 shared_clone() {
     printf "%s/repos/%s\n" "$root" \
         "$(printf "%s" "$1" | sed -e "s|^/||" -e "s|/|-|g")"
+}
+
+# A version-4 id drawn from urandom, for the fork the harness starts
+# itself, which has no arriving message id to adopt.
+new_uuid() {
+    od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
+        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/"
 }
 
 project_repo() {
@@ -232,6 +240,64 @@ export MAIL_AGENT
 branch=$(message_branch "$message")
 current=$(cat "$work/branch" 2>/dev/null)
 shared=$(shared_clone "$repo")
+
+# A reply to the tip continues the thread; a reply to an earlier response
+# branches from it. turns records each response with the session and the
+# commit it produced, so an out-of-order reply forks both: a new thread
+# whose session and worktree begin where that response did, leaving the
+# original untouched.
+inreplyto=$(mhdr -h in-reply-to "$message")
+tip=$(tail -1 "$work/turns" 2>/dev/null | cut -d" " -f1)
+fork=""
+
+if [ -f "$work/turns" ] && [ -n "$inreplyto" ] && [ "$inreplyto" != "$tip" ]; then
+    fork=$(awk -v id="$inreplyto" '$1 == id { print $2, $3; exit }' "$work/turns")
+fi
+
+if [ -n "$fork" ]; then
+    parent_session=${fork% *}
+    parent_commit=${fork#* }
+    child=$(new_uuid)
+    cwork="$root/work/$child"
+
+    mkdir -p "$cwork"
+    cp "$work/project" "$work/agent" "$work/branch" "$cwork/"
+    mhdr -h subject "$message" > "$cwork/subject"
+    printf "%s\n" "$parent_session" > "$cwork/agent-session"
+    printf "%s\n" "$parent_commit" > "$cwork/base"
+
+    git -C "$shared" worktree add --quiet -b "mail/$child" \
+        "$cwork/repo" "$parent_commit"
+
+    # claude files a session under the worktree it ran in, so the fork
+    # cannot resume the parent from its own new worktree until the parent
+    # transcript is there. Copy it verbatim; nothing is rewritten.
+    if [ "$driver" = claude ]; then
+        proj="$HOME/mail/.agent/claude/projects"
+        from=$(printf "%s" "$work/repo" | sed -e "s|[/.]|-|g")
+        to=$(printf "%s" "$cwork/repo" | sed -e "s|[/.]|-|g")
+
+        mkdir -p "$proj/$to"
+        cp "$proj/$from/$parent_session.jsonl" "$proj/$to/" 2>/dev/null
+    fi
+
+    mkdir -p "$root/queue/$child"
+    mv "$message" "$root/queue/$child/$(date +%s%N)"
+
+    # A fork is its own thread with its own lock, so hand it to a fresh
+    # worker rather than running it under this one's.
+    systemd-run --user --collect --quiet \
+        --unit="mail-agent-$child-$(date +%s%N)" \
+        flock "$root/lock/$child" "$HOME/bin/mail-agent-run" "$child"
+
+    rmdir "$queue" 2>/dev/null
+
+    if [ -n "$(ls -A "$queue" 2>/dev/null)" ]; then
+        exec "$0" "$session"
+    fi
+
+    exit 0
+fi
 
 if [ -n "$branch" ] && [ "$branch" != "$current" ]; then
     if git -C "$shared" fetch --quiet origin \
@@ -466,6 +532,11 @@ fi
 
 reply "$scratch/body" "$message"
 mail_patches
+
+# Record the response so a later reply can tell the tip from an earlier
+# point, and fork the exact session and commit that produced it.
+printf "%s %s %s\n" "$sent" "$(cat "$work/agent-session" 2>/dev/null)" \
+    "$(git -C "$work/repo" rev-parse HEAD)" >> "$work/turns"
 
 rm -f "$message"
 rmdir "$queue" 2>/dev/null

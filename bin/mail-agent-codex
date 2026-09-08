@@ -57,8 +57,11 @@ profile() {
 # prompt above a discovered AGENTS.md and the agent is not trusted to find
 # them.
 
+# Each turn forks the thread it answers rather than resuming it in place,
+# so every response stays a point a later reply can branch from. A fork
+# emits its own thread.started, captured below like any other id.
 if [ -f "$work/agent-session" ]; then
-    set -- exec resume "$(cat "$work/agent-session")" -
+    set -- exec fork "$(cat "$work/agent-session")" -
 else
     set -- exec
 fi

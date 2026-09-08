@@ -47,31 +47,33 @@ deny() {
     esac
 }
 
-# A thread keeps its session id: the first turn generates one, later
-# turns reuse it and pi resumes the conversation stored under it.
+# Each turn forks the session it answers rather than advancing it, so
+# every response stays a point a later reply can branch from; the fork's
+# id is read back from the stream. agent-session names the parent to
+# fork, absent on the first turn.
 if [ -f "$work/agent-session" ]; then
-    session=$(cat "$work/agent-session")
+    session="--fork $(cat "$work/agent-session")"
 else
-    session=$(od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
-        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/")
+    session="--session-id $(od -An -tx1 -N16 /dev/urandom | tr -d " \n" | sed -E \
+        "s/(.{8})(.{4}).(.{3}).(.{3})(.{12})/\1-\2-4\3-a\4-\5/")"
 fi
 
-# The session store has to be writable even when the checkout is not, so
-# it lives beside the checkout rather than under it, granted rw of its
-# own. The mail rules are the installed file, the same for every thread
-# and read from the config directory the profile already grants, handed
-# to pi rather than left for discovery to climb out of the worktree.
-mkdir -p "$work/pi"
+# One session store, shared by every thread and its forks, so a fork can
+# resume a parent session another worktree began. It is writable even
+# when the checkout is not, granted rw of its own below. The mail rules
+# are the installed file, the same for every thread, handed to pi rather
+# than left for discovery to climb out of the worktree.
+mkdir -p "$HOME/mail/.agent/pi"
 
 (
     cd "$work/repo" || exit 70
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$mode").cfg" \
-        -r "$repo" -r "$work" -w "$work/pi" \
+        -r "$repo" -r "$work" -w "$HOME/mail/.agent/pi" \
         "$HOME/.local/bin/pi" -p --mode json \
         --provider llama-cpp --model "$model" \
-        --session-id "$session" --session-dir "$work/pi" \
+        $session --session-dir "$HOME/mail/.agent/pi" \
         --append-system-prompt "$HOME/.config/mail-agent/instructions.md" \
         $(deny "$mode") < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
