@@ -50,6 +50,17 @@ agent_field() {
         '$1 == alias { print $field; exit }' "$agents"
 }
 
+# The sender's own branch of that name, or failing that the one they
+# know of from the repository they themselves clone.
+branch_ref() {
+    for ref in "refs/remotes/origin/$2" "refs/remotes/upstream/$2"; do
+        if git -C "$1" rev-parse --verify --quiet "$ref" > /dev/null; then
+            printf "%s\n" "$ref"
+            return
+        fi
+    done
+}
+
 # One shared clone per repository, named for the path it came from.
 shared_clone() {
     printf "%s/repos/%s\n" "$root" \
@@ -141,6 +152,31 @@ scratch=$(mktemp -d)
 
 trap 'rm -rf "$scratch"' EXIT
 
+# The alias is settled before the thread exists, because the answers
+# that refuse a message are sent from here too and would otherwise come
+# from the default. A thread that has an alias keeps it: the address a
+# later message arrives on cannot move a thread to another agent.
+if [ -f "$work/agent" ]; then
+    agent=$(cat "$work/agent")
+else
+    agent=$(mhdr -h x-mail-agent "$message")
+fi
+
+if [ -z "$agent" ]; then
+    agent=claude
+fi
+
+driver=$(agent_field "$agent" 2)
+model=$(agent_field "$agent" 3)
+
+if [ -z "$driver" ]; then
+    driver=$agent
+fi
+
+MAIL_AGENT="$agent"
+
+export MAIL_AGENT
+
 # A thread's first message fixes its repository for good; later turns
 # read the recorded path so an edited subject cannot re-target the agent.
 if [ ! -d "$work" ]; then
@@ -158,7 +194,7 @@ if [ ! -d "$work" ]; then
 
     mkdir -p "$work"
     printf "%s\n" "$repo" > "$work/project"
-    printf "%s\n" "$(mhdr -h x-mail-agent "$message")" > "$work/agent"
+    printf "%s\n" "$agent" > "$work/agent"
     mhdr -h subject "$message" > "$work/subject"
 
     # One clone per repository, shared by every thread on it, with a
@@ -170,6 +206,12 @@ if [ ! -d "$work" ]; then
         git clone --quiet --bare "$repo" "$shared"
         git -C "$shared" config remote.origin.fetch \
             "+refs/heads/*:refs/remotes/origin/*"
+
+        # A branch written by someone else is held in the source as a
+        # remote-tracking ref rather than a branch, so fetching heads
+        # alone hides every branch the sender has not checked out.
+        git -C "$shared" config --add remote.origin.fetch \
+            "+refs/remotes/origin/*:refs/remotes/upstream/*"
     fi
 
     # A bare clone has no remote-tracking refs until it fetches, and no
@@ -184,8 +226,9 @@ if [ ! -d "$work" ]; then
             2>/dev/null | sed "s|^origin/||")
     fi
 
-    if ! git -C "$shared" rev-parse --verify --quiet \
-            "refs/remotes/origin/$branch" > /dev/null; then
+    start=$(branch_ref "$shared" "$branch")
+
+    if [ -z "$start" ]; then
         printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
             > "$scratch/body"
 
@@ -198,7 +241,7 @@ if [ ! -d "$work" ]; then
     # The thread commits on a branch of its own, named for the session,
     # so two threads on one branch do not contend for it.
     git -C "$shared" worktree add --quiet -b "mail/$session" \
-        "$work/repo" "origin/$branch"
+        "$work/repo" "$start"
 
     printf "%s\n" "$branch" > "$work/branch"
     git -C "$work/repo" rev-parse HEAD > "$work/base"
@@ -221,22 +264,6 @@ if [ ! -f "$work/project" ]; then
 fi
 
 repo=$(cat "$work/project")
-agent=$(cat "$work/agent" 2>/dev/null)
-
-if [ -z "$agent" ]; then
-    agent=claude
-fi
-
-driver=$(agent_field "$agent" 2)
-model=$(agent_field "$agent" 3)
-
-if [ -z "$driver" ]; then
-    driver=$agent
-fi
-
-MAIL_AGENT="$agent"
-
-export MAIL_AGENT
 
 # A later turn may move the thread to another branch. The patch base
 # moves with it, so a series is always measured from the branch tip the
@@ -307,10 +334,12 @@ if [ -n "$fork" ]; then
 fi
 
 if [ -n "$branch" ] && [ "$branch" != "$current" ]; then
-    if git -C "$shared" fetch --quiet origin \
-            "+refs/heads/$branch:refs/remotes/origin/$branch" &&
-       git -C "$work/repo" checkout --quiet -B "mail/$session" \
-            "origin/$branch"; then
+    git -C "$shared" fetch --quiet --prune origin
+
+    start=$(branch_ref "$shared" "$branch")
+
+    if [ -n "$start" ] &&
+       git -C "$work/repo" checkout --quiet -B "mail/$session" "$start"; then
         printf "%s\n" "$branch" > "$work/branch"
         rm -f "$work/mailed"
         git -C "$work/repo" rev-parse HEAD > "$work/base"

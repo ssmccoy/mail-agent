@@ -160,3 +160,35 @@ load helper
     [ ! -e "$child_work" ]
     [ ! -e "$work" ]
 }
+
+@test "a refusal comes from the alias the message was sent to" {
+    new_repository
+    printf "sample %s\n" "$source_repo" > "$case_home/.config/mail-agent/projects"
+    message "$queue/001" $'!branch absent\nPlease inspect.'
+    run_turn
+
+    [ ! -e "$work" ]
+    grep -Fq "There is no branch" "$case_root/outgoing"/*
+    grep -Eq '^From: Fixture <test\+fixture@' "$case_root/outgoing"/*
+}
+
+@test "a branch the sender tracks but has not checked out is usable" {
+    new_repository
+    invoke git clone -q "$source_repo" "$case_root/colleague"
+    printf "theirs\n" > "$case_root/colleague/file"
+    invoke git -C "$case_root/colleague" commit -qam "Write their change"
+    theirs=$(invoke git -C "$case_root/colleague" rev-parse HEAD)
+
+    # The sender has their branch only as a remote-tracking ref, which is
+    # what a fetch of someone else's work leaves behind.
+    invoke git -C "$source_repo" remote add colleague "$case_root/colleague"
+    invoke git -C "$source_repo" fetch -q colleague \
+        "+refs/heads/main:refs/remotes/origin/theirs"
+
+    message "$queue/001" $'!branch theirs\nPlease inspect.'
+    run_turn
+
+    [ "$(cat "$work/branch")" = theirs ]
+    [ "$(cat "$work/base")" = "$theirs" ]
+    [ "$(cat "$work/repo/file")" = theirs ]
+}
