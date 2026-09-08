@@ -126,11 +126,30 @@ with a fresh clone.
 The first line of the body selects what the turn may do. Without one, the turn
 is an investigation.
 
-| directive      | edits                  | reply             |
-|----------------|------------------------|-------------------|
-| `!investigate` | refused by the sandbox | findings          |
-| `!plan`        | refused by the sandbox | a plan            |
-| `!execute`     | allowed                | prose and patches |
+| directive      | edits                  | reply              |
+|----------------|------------------------|--------------------|
+| `!investigate` | refused by the sandbox | findings           |
+| `!plan`        | refused by the sandbox | a plan             |
+| `!execute`     | allowed                | prose and patches  |
+| `!research`    | refused by the sandbox | findings and links |
+
+`!research` is the one mode that does not need a repository. The agent has the
+network in every mode, but a research thread whose subject names no known
+project is not refused: it runs with no clone and no worktree, in an empty
+directory, and answers from what it reads on the web.
+
+    To: claude
+    Subject: nvme write amplification under zoned namespaces
+
+    !research
+    Is the write amplification worth the added complexity for a
+    write-heavy fleet? Cite what you find.
+
+A research thread whose subject *does* name a project gets its worktree as any
+other thread would, and can read the code alongside what it finds. Either way
+edits are refused, and `!execute` in a thread that has no repository is
+answered with a note saying there is nothing to commit to rather than running a
+turn that would deliver nothing.
 
 `!details` is not a mode: it answers from what is already on disk, replying
 with the thread’s details and running no turn.

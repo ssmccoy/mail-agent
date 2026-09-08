@@ -35,7 +35,15 @@ else
 fi
 
 limit=${MAIL_AGENT_TIMEOUT:-60m}
-repo=$(cat "$work/project")
+# A research thread has no repository to read from, and nothing outside
+# the working directory is granted to it.
+repo=$(cat "$work/project" 2>/dev/null)
+
+if [ -n "$repo" ]; then
+    with_repo="-r $repo"
+else
+    with_repo=""
+fi
 
 permission_mode() {
     case $1 in
@@ -69,7 +77,7 @@ fi
     cd "$work/repo" || exit 70
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
-        -c "$HOME/.config/landlock/mail-agent-claude.cfg" -r "$repo" \
+        -c "$HOME/.config/landlock/mail-agent-claude.cfg" $with_repo \
         "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
         --append-system-prompt-file "$HOME/.config/mail-agent/instructions.md" \

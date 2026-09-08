@@ -192,3 +192,44 @@ load helper
     [ "$(cat "$work/base")" = "$theirs" ]
     [ "$(cat "$work/repo/file")" = theirs ]
 }
+
+@test "research without a project runs in a directory of its own" {
+    new_repository
+    message "$queue/001" '!research' 'zoned namespaces: write amplification'
+
+    run run_turn
+
+    [ "$status" -eq 0 ]
+    [ "$(mail_count)" -eq 1 ]
+    [ ! -e "$work/project" ]
+    [ -d "$work/repo" ]
+    [ ! -e "$work/repo/.git" ]
+    [ -z "$(ls -A "$work/repo")" ]
+    grep -Fx research "$case_root/driver-arguments"
+    grep -Fx "Mode: research" "$case_root/prompts"
+    [ "$(cut -d" " -f3 "$work/turns")" = "-" ]
+}
+
+@test "research naming a project is given its worktree" {
+    new_repository
+    message "$queue/001" '!research' 'sample: how is this done elsewhere'
+
+    run_turn
+
+    [ "$(cat "$work/project")" = "$source_repo" ]
+    [ -e "$work/repo/.git" ]
+    grep -Fx research "$case_root/driver-arguments"
+}
+
+@test "a thread with no repository refuses execute" {
+    new_repository
+    message "$queue/001" '!research' 'zoned namespaces: write amplification'
+    run_turn
+    mkdir -p "$queue"
+    message "$queue/002" '!execute' 'Re: zoned namespaces: write amplification'
+    run_turn
+
+    [ "$(mail_count)" -eq 2 ]
+    [ "$(wc -l < "$work/turns")" -eq 1 ]
+    grep -rq "nothing to execute against" "$case_root/outgoing"
+}

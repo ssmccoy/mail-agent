@@ -32,7 +32,15 @@ else
 fi
 
 limit=${MAIL_AGENT_TIMEOUT:-60m}
-repo=$(cat "$work/project")
+# A research thread has no repository to read from, and nothing outside
+# the working directory is granted to it.
+repo=$(cat "$work/project" 2>/dev/null)
+
+if [ -n "$repo" ]; then
+    with_repo="-r $repo"
+else
+    with_repo=""
+fi
 
 # The final message is written by codex itself, so it has to land
 # somewhere the sandbox can write: the harness scratch directory is
@@ -70,7 +78,7 @@ fi
     cd "$work/repo" || exit 70
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
-        -c "$HOME/.config/landlock/$(profile "$mode").cfg" -r "$repo" \
+        -c "$HOME/.config/landlock/$(profile "$mode").cfg" $with_repo \
         "$HOME/.local/bin/codex" "$@" --json -o "$last" $with_model \
         -c "developer_instructions=$(cat "$HOME/.config/mail-agent/instructions.md")" \
         --dangerously-bypass-approvals-and-sandbox \

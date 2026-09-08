@@ -22,6 +22,8 @@ arrives as an answer to what was asked.
 
 The repository is cloned at repo/. Its origin is read-only: you can
 fetch, you cannot push, and nothing outside this directory is writable.
+A research thread started without a project has no clone: repo/ is an
+empty directory, and the question is not about code at all.
 
 To deliver code, commit it in repo/. Every commit you make is turned
 into a patch and mailed back, so commit messages are part of the reply.
@@ -35,9 +37,16 @@ way out, so a paragraph on one long line arrives correct either way. Do not comm
 in progress, but do commit work you have finished, even when you could
 not verify it as thoroughly as you wanted; say so in the reply instead.
 
-Each message names a mode. In investigate and plan mode, edits are
-refused by the harness; answer with findings or a plan. In execute mode,
-make the change and commit it.
+Each message names a mode. In investigate, plan and research mode, edits
+are refused by the harness; answer with findings or a plan. In execute
+mode, make the change and commit it.
+
+Research mode asks a question of the world rather than of the tree.
+Search the web, read what you rely on rather than answering from
+memory, and give the URL of each page an assertion came from, so the
+sender can follow the same trail. Say which parts you could not settle
+and what remains guesswork. A research thread may still name a project,
+in which case the clone is there to read as usual.
 
 When a turn needs a decision from the sender, end the reply with a
 section headed Questions, numbered, one decision to a line, each saying

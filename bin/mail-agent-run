@@ -87,7 +87,7 @@ project_keys() {
 # repository to work from.
 message_mode() {
     mshow -R "$1" 2>/dev/null </dev/null \
-        | sed -n 's/^!\(investigate\|plan\|execute\)[[:space:]]*$/\1/p' \
+        | sed -n 's/^!\(investigate\|plan\|execute\|research\)[[:space:]]*$/\1/p' \
         | head -1
 }
 
@@ -103,7 +103,7 @@ message_branch() {
 # with it.
 message_body() {
     mshow -R "$1" 2>/dev/null </dev/null \
-        | sed -e '/^!\(investigate\|plan\|execute\)[[:space:]]*$/d' \
+        | sed -e '/^!\(investigate\|plan\|execute\|research\)[[:space:]]*$/d' \
               -e '/^!branch[[:space:]]/d' \
         | awk '
             {
@@ -176,6 +176,19 @@ fi
 MAIL_AGENT="$agent"
 
 export MAIL_AGENT
+
+# Research is asked of the web rather than of a repository. A subject
+# that names a project still gets its worktree; one that names none runs
+# in an empty directory instead of being refused, and the thread is
+# marked as having no repository so its later turns know it.
+if [ ! -d "$work" ] && [ "$(message_mode "$message")" = research ] &&
+   [ -z "$(project_repo "$(project_key "$message")")" ]; then
+    mkdir -p "$work/repo"
+    printf "%s\n" "$agent" > "$work/agent"
+    mhdr -h subject "$message" > "$work/subject"
+    printf "%s\n" "$session" > "$work/root"
+    : > "$work/research"
+fi
 
 # A thread's first message fixes its repository for good; later turns
 # read the recorded path so an edited subject cannot re-target the agent.
@@ -253,7 +266,7 @@ fi
 
 # A working directory that exists without a recorded project has lost
 # its clone; say so rather than running the turn against nothing.
-if [ ! -f "$work/project" ]; then
+if [ ! -f "$work/project" ] && [ ! -f "$work/research" ]; then
     printf "%s\n%s\n" \
         "This thread's working directory is gone, so there is no clone to work in." \
         "Start a new thread to pick the work back up." > "$scratch/body"
@@ -263,14 +276,17 @@ if [ ! -f "$work/project" ]; then
     exit 0
 fi
 
-repo=$(cat "$work/project")
+repo=$(cat "$work/project" 2>/dev/null)
 
 # A later turn may move the thread to another branch. The patch base
 # moves with it, so a series is always measured from the branch tip the
-# work started on rather than from wherever the thread began.
-branch=$(message_branch "$message")
-current=$(cat "$work/branch" 2>/dev/null)
-shared=$(shared_clone "$repo")
+# work started on rather than from wherever the thread began. A thread
+# with no repository has neither.
+if [ -n "$repo" ]; then
+    branch=$(message_branch "$message")
+    current=$(cat "$work/branch" 2>/dev/null)
+    shared=$(shared_clone "$repo")
+fi
 
 # A reply to the tip continues the thread; a reply to an earlier response
 # branches from it. turns records each response with the session and the
@@ -292,7 +308,8 @@ if [ -n "$fork" ]; then
     cwork="$root/work/$child"
 
     mkdir -p "$cwork"
-    cp "$work/project" "$work/agent" "$work/branch" "$cwork/"
+    cp "$work/agent" "$cwork/"
+    cp "$work/project" "$work/branch" "$work/research" "$cwork/" 2>/dev/null
     mhdr -h subject "$message" > "$cwork/subject"
     printf "%s\n" "$parent_session" > "$cwork/agent-session"
     printf "%s\n" "$parent_commit" > "$cwork/base"
@@ -300,8 +317,14 @@ if [ -n "$fork" ]; then
     # The fork joins its parent's tree, so deleting either deletes both.
     { cat "$work/root" 2>/dev/null || printf "%s\n" "$session"; } > "$cwork/root"
 
-    git -C "$shared" worktree add --quiet -b "mail/$child" \
-        "$cwork/repo" "$parent_commit"
+    # A thread with no repository forks into a directory of its own
+    # rather than a worktree; there is no commit to begin at.
+    if [ -n "$repo" ]; then
+        git -C "$shared" worktree add --quiet -b "mail/$child" \
+            "$cwork/repo" "$parent_commit"
+    else
+        mkdir -p "$cwork/repo"
+    fi
 
     # claude files a session under the worktree it ran in, so the fork
     # cannot resume the parent from its own new worktree until the parent
@@ -333,7 +356,7 @@ if [ -n "$fork" ]; then
     exit 0
 fi
 
-if [ -n "$branch" ] && [ "$branch" != "$current" ]; then
+if [ -n "$repo" ] && [ -n "$branch" ] && [ "$branch" != "$current" ]; then
     git -C "$shared" fetch --quiet --prune origin
 
     start=$(branch_ref "$shared" "$branch")
@@ -381,7 +404,7 @@ if [ -z "$mode" ]; then
        [ "$unknown" != "details" ]; then
         printf "%s\n\n    %s\n\n%s\n" \
             "There is no !$unknown directive, so the turn did not run." \
-            "!investigate  !plan  !execute  !branch <name>  !details" \
+            "!investigate  !plan  !execute  !research  !branch <name>  !details" \
             "Resend with one of those." > "$scratch/body"
 
         reply "$scratch/body" "$message"
@@ -390,6 +413,19 @@ if [ -z "$mode" ]; then
     fi
 
     mode=investigate
+fi
+
+# A thread with no repository has nothing to commit to, so an execute
+# turn there would work and deliver nothing.
+if [ "$mode" = execute ] && [ -z "$repo" ]; then
+    printf "%s\n%s\n" \
+        "This thread has no repository, so there is nothing to execute against." \
+        "Start a thread whose subject names a project to have code written." \
+        > "$scratch/body"
+
+    reply "$scratch/body" "$message"
+    rm -f "$message"
+    exit 0
 fi
 
 {
@@ -452,7 +488,7 @@ printf "%s %s\n" "$started" "$(cat "$scratch/cost" 2>/dev/null || echo 0)" \
 
 # An execute turn that edited without committing delivers nothing, and
 # the sender cannot see that from the reply alone.
-uncommitted=$(git -C "$work/repo" status --porcelain | head -20)
+uncommitted=$(git -C "$work/repo" status --porcelain 2>/dev/null | head -20)
 
 if [ "$mode" = execute ] && [ -n "$uncommitted" ]; then
     {
@@ -467,6 +503,10 @@ fi
 # a diff can be read in the pager and answered under the hunk it is
 # about. mail_patches runs after the reply, which is their cover letter.
 mail_patches() {
+    if [ -z "$repo" ]; then
+        return
+    fi
+
     # The base moves to whatever was last sent, so a thread that commits
     # on three turns mails each commit once rather than mailing the
     # whole series again every time.
@@ -572,7 +612,7 @@ mail_patches
 # Record the response so a later reply can tell the tip from an earlier
 # point, and fork the exact session and commit that produced it.
 printf "%s %s %s\n" "$sent" "$(cat "$work/agent-session" 2>/dev/null)" \
-    "$(git -C "$work/repo" rev-parse HEAD)" >> "$work/turns"
+    "$(git -C "$work/repo" rev-parse HEAD 2>/dev/null || echo -)" >> "$work/turns"
 
 rm -f "$message"
 rmdir "$queue" 2>/dev/null

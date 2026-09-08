@@ -58,7 +58,7 @@ if [ "$state" = running ] && [ "$waiting" -gt 0 ]; then
 fi
 
 printf "state     %s, %s waiting\n" "$state" "$waiting"
-printf "project   %s\n" "$(cat "$work/project" 2>/dev/null)"
+printf "project   %s\n" "$(cat "$work/project" 2>/dev/null || echo none)"
 # The checkout is on a branch named for the session; the branch that
 # matters is the one the thread was asked for.
 printf "branch    %s\n" "$(cat "$work/branch" 2>/dev/null ||
@@ -74,7 +74,8 @@ if [ -f "$work/cost" ]; then
     awk '{ printf "  %s  $%.2f\n", substr($1, 1, 19), $2 }' "$work/cost"
 fi
 
-commits=$(git -C "$work/repo" log --oneline "$(cat "$work/base")..HEAD" 2>/dev/null)
+commits=$(git -C "$work/repo" log --oneline \
+    "$(cat "$work/base" 2>/dev/null)..HEAD" 2>/dev/null)
 
 if [ -n "$commits" ]; then
     printf "\ncommits since base\n"

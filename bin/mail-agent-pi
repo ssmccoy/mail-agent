@@ -27,7 +27,15 @@ if [ -z "$mode" ]; then
 fi
 
 limit=${MAIL_AGENT_TIMEOUT:-60m}
-repo=$(cat "$work/project")
+# A research thread has no repository to read from, and nothing outside
+# the working directory is granted to it.
+repo=$(cat "$work/project" 2>/dev/null)
+
+if [ -n "$repo" ]; then
+    with_repo="-r $repo"
+else
+    with_repo=""
+fi
 model=${MAIL_AGENT_PI_MODEL:-ggml-org/Qwen3.5-0.8B-GGUF}
 
 # The clone is mounted rox rather than rwx for the modes that refuse
@@ -70,7 +78,7 @@ mkdir -p "$HOME/mail/.agent/pi"
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$mode").cfg" \
-        -r "$repo" -r "$work" -w "$HOME/mail/.agent/pi" \
+        $with_repo -r "$work" -w "$HOME/mail/.agent/pi" \
         "$HOME/.local/bin/pi" -p --mode json \
         --provider llama-cpp --model "$model" \
         $session --session-dir "$HOME/mail/.agent/pi" \
