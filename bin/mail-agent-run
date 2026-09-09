@@ -615,7 +615,7 @@ fi
 if ! grep -q "^>" "$scratch/reply.md"; then
     {
         printf "\n\n%s wrote:\n" "$(mhdr -h from "$message")"
-        message_body "$message" | awk '$0 = "> " $0'
+        message_body "$message" | awk '$0 = ($0) ? "> " $0 : ">"'
     } >> "$scratch/reply.md"
 fi
 
