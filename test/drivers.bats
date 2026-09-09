@@ -15,7 +15,8 @@ prepare_driver() {
 
 invoke_driver() {
     invoke "$case_home/bin/mail-agent-$1" "$work" "$case_root/result" \
-        "$case_root/prompt" "$2" "example-model"
+        "$case_root/prompt" "$2" \
+        "$([ "$1" = codex ] && echo gpt-5.6-sol || echo example-model)"
 }
 
 @test "all drivers convert fixture events and preserve prompts" {
@@ -36,11 +37,50 @@ invoke_driver() {
             [ "$(cat "$case_root/result/cost")" = "0.25" ]
             grep -Fx plan "$case_root/cli-arguments"
             grep -F '$0.25 this turn' "$case_root/result/usage.html"
+        elif [ "$driver" = codex ]; then
+            [ "$(cat "$case_root/result/cost")" = "0.0001172" ]
+            grep -F '$0.0001 this turn' "$case_root/result/usage.html"
+            grep -F '<td>gpt-5.6-sol</td><td class="n">9</td>' \
+                "$case_root/result/usage.html"
+            grep -F "mail-agent-$driver-ro.cfg" "$case_root/launcher-arguments"
         else
             [ "$(cat "$case_root/result/cost")" = "0" ]
             grep -F "mail-agent-$driver-ro.cfg" "$case_root/launcher-arguments"
             grep -F '<td class="n">12</td>' "$case_root/result/usage.html"
         fi
+    done
+}
+
+@test "codex result conversion applies cached and output token rates" {
+    prepare_driver
+
+    jq -c 'if .type == "turn.completed" then
+            .usage = {
+                input_tokens: 1000000,
+                cached_input_tokens: 250000,
+                output_tokens: 100000,
+                reasoning_output_tokens: 10000
+            }
+        else . end' "$case_root/codex.jsonl" > "$case_root/priced-codex.jsonl"
+
+    for specification in \
+        "gpt-6-astra 12.75" \
+        "gpt-5.6-sol 5.1" \
+        "gpt-5.6-terra 2.75" \
+        "gpt-5.6-luna 0.275" \
+        "gpt-5.5 6.875" \
+        "gpt-5.4-mini 1.03125"; do
+        model=${specification% *}
+        expected=${specification#* }
+
+        run jq -rs --arg model "$model" \
+            -f "$case_home/.config/mail-agent/result-codex.jq" \
+            "$case_root/priced-codex.jsonl"
+
+        [ "$status" -eq 0 ]
+        [ "$(jq -r '.total_cost_usd' <<< "$output")" = "$expected" ]
+        [ "$(jq -r --arg model "$model" \
+            '.modelUsage[$model].inputTokens' <<< "$output")" = "750000" ]
     done
 }
 

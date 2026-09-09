@@ -124,24 +124,16 @@ fi
 jq -r --arg work "$work/" -f "$HOME/.config/mail-agent/steps-codex.jq" \
     "$work/events.jsonl" > "$out/steps.txt"
 
-# codex reports tokens rather than money, so the table counts tokens.
-jq -rs --arg session "$(cat "$work/agent-session")" '
-    (map(select(.type=="turn.completed"))|last.usage) as $usage
-    | (map(select(.type=="item.completed"))|length) as $steps
-    | "<!doctype html><meta charset=\"utf-8\"><title>Turn cost</title>"
-    + "<style>body{font:14px/1.5 ui-monospace,monospace;margin:1.5rem}"
-    + "table{border-collapse:collapse}td,th{padding:.25rem .75rem;"
-    + "border-bottom:1px solid #ddd;text-align:left}"
-    + "td.n{text-align:right;font-variant-numeric:tabular-nums}</style>"
-    + "<table>"
-    + "<tr><td>input</td><td class=\"n\">\($usage.input_tokens)</td></tr>"
-    + "<tr><td>cached input</td><td class=\"n\">\($usage.cached_input_tokens)</td></tr>"
-    + "<tr><td>output</td><td class=\"n\">\($usage.output_tokens)</td></tr>"
-    + "<tr><td>reasoning</td><td class=\"n\">\($usage.reasoning_output_tokens)</td></tr>"
-    + "<tr><td>steps taken</td><td class=\"n\">\($steps)</td></tr>"
-    + "<tr><td>thread</td><td class=\"n\">\($session)</td></tr>"
-    + "</table>"' "$work/events.jsonl" > "$out/usage.html"
+# Codex reports aggregate token counts rather than money. Convert its events
+# to the result interface used by Claude, estimating Standard API cost at the
+# selected model's published rates.
+if ! jq -rs --arg model "${model:--}" \
+    -f "$HOME/.config/mail-agent/result-codex.jq" \
+    "$work/events.jsonl" > "$out/result"; then
+    exit 70
+fi
 
-# Tokens are what codex reports, so the ledger counts turns at zero cost
-# rather than inventing a price for them.
-printf "0\n" > "$out/cost"
+"$HOME/bin/mail-agent-usage" "$out/result" "$work/events.jsonl" "" \
+    "$work/cost" > "$out/usage.html"
+
+jq -r '.total_cost_usd' "$out/result" > "$out/cost"

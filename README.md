@@ -350,10 +350,18 @@ stalled turn holds the thread’s lock.
 | credentials      | symlink to `~/.claude`             | symlink to `~/.codex`                |
 | instructions     | `CLAUDE.md`                        | `AGENTS.md`, a symlink to it         |
 | edits refused by | permission mode                    | landlock, with the clone read-only   |
-| reports          | cost in dollars                    | token counts                         |
+| reports          | cost in dollars                    | estimated API cost and token counts  |
 
 State belongs to the driver, not the alias: fable and opus share Claude’s
 session store and credentials, and differ only in the model passed to it.
+
+Codex does not report a per-turn charge for ChatGPT subscriptions. Its driver
+converts Codex events to the same result interface used for Claude usage and
+estimates the equivalent Standard API cost from uncached input, cached input,
+and output tokens at the selected model’s published rates. Reasoning tokens are
+already included in output tokens. The estimate excludes tool-call charges,
+cache-write premiums, long-context multipliers, regional processing, and
+service-tier adjustments because aggregate CLI usage does not identify them.
 
 codex runs with its own sandbox turned off, because it cannot initialise one
 inside landlock’s. Landlock is then the only boundary, which is why an
