@@ -151,11 +151,39 @@ edits are refused, and `!execute` in a thread that has no repository is
 answered with a note saying there is nothing to commit to rather than running a
 turn that would deliver nothing.
 
-`!effort <level>` says how hard to think: `low`, `medium`, `high`, `xhigh` or
-`max`. It stays with the thread until another message changes it, so a question
-worth the depth need only ask once. Without it each CLI uses its own default,
-which differs by model. A level a model does not offer is refused by the CLI
-itself and comes back as a failed turn quoting what it said.
+`X-Mail-Effort: <level>` or `!effort <level>` selects `low`, `medium`, `high`,
+`xhigh`, or `max`. The setting persists in the thread until another message
+changes it. Use `default` to clear the setting and use the driver’s default
+again. Levels are case insensitive. Conflicting effort headers or directives,
+empty values, and unknown levels prevent the turn from running.
+
+When neither explicit control is present, `Priority: non-urgent` selects `low`,
+`Priority: normal` selects `medium`, and `Priority: urgent` selects `high`.
+This is a mail-agent convention for effort; it does not change queue ordering.
+Explicit effort controls take precedence over Priority. An absent control
+preserves the existing setting. Invalid or conflicting Priority values prevent
+the turn from running when no explicit effort control is present.
+
+A level unsupported by a model is reported as a driver failure. The pi driver
+ignores effort. Replies and patches report the selected level in
+`X-Mail-Effort`, or `default` when no level is configured, or `unsupported` for
+pi. `X-Mail-Effort-Source` distinguishes a setting supplied by the current
+`message`, inherited from the `session`, or the unconfigured `default`. These
+headers describe configuration, not measured reasoning usage.
+
+Source `mutt/muttrc.example` or copy its compose macros and display rules into
+your Mutt configuration after installing the scripts. In the compose menu,
+Alt-h selects high effort, Alt-Shift-m selects max, and Alt-d resets to
+default. Each shortcut replaces the effort header in the current draft and
+restores the configured editor. It does not change defaults for other drafts.
+The shortcut does not modify body directives: if the draft already contains an
+`!effort` line, remove it or make it agree with the header. For other levels,
+use Mutt’s `E` command to edit the draft headers.
+
+The example colors high effort yellow and xhigh/max bright red, and displays
+the generated `X-Label: effort=<level>` in the index. Replies to model turns
+also report `X-Mail-Mode`; early validation replies and details requests do not
+claim a model turn mode.
 
     To: astra
     Subject: foundry: why does the dcfab poller wedge under load

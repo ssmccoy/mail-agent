@@ -97,13 +97,34 @@ message_branch() {
         | head -1
 }
 
-# How hard the model is asked to think. The levels are the ones both
-# CLIs name; a model that does not offer the one asked for says so
-# itself when the turn starts.
+# Explicit headers and directives must agree. Only consult Priority
+# when neither is present; validate the resulting selection below.
 message_effort() {
-    mshow -R "$1" 2>/dev/null </dev/null \
-        | sed -n 's/^!effort[[:space:]]\{1,\}\([a-z]\{1,\}\).*$/\1/p' \
-        | head -1
+    explicit=$(
+        {
+            mhdr -M -h x-mail-effort "$1"
+            mshow -R "$1" 2>/dev/null </dev/null \
+                | sed -n 's/^!effort\([[:space:]].*\|$\)/\1/p'
+        } | awk '{
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            print length($0) ? tolower($0) : "invalid"
+        }' | sort -u
+    )
+
+    if [ -n "$explicit" ]; then
+        printf "%s\n" "$explicit"
+        return
+    fi
+
+    mhdr -M -h priority "$1" | awk '{
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+        priority = tolower($0)
+
+        if (priority == "non-urgent") print "low"
+        else if (priority == "normal") print "medium"
+        else if (priority == "urgent") print "high"
+        else print "invalid"
+    }' | sort -u
 }
 
 # Drop the quote a reply trails behind it, but keep quoting that has
@@ -433,13 +454,25 @@ asked=$(message_effort "$message")
 
 if [ -n "$asked" ]; then
     case $asked in
+        *'
+'*)
+            printf "%s\n" "Conflicting effort controls, so the turn did not run." \
+                "Resend with matching effort headers and directives." > "$scratch/body"
+
+            reply "$scratch/body" "$message"
+            rm -f "$message"
+            exit 0
+            ;;
+        default)
+            rm -f "$work/effort"
+            ;;
         low|medium|high|xhigh|max)
             printf "%s\n" "$asked" > "$work/effort"
             ;;
         *)
             printf "%s\n\n    %s\n\n%s\n" \
                 "There is no \"$asked\" effort level, so the turn did not run." \
-                "low  medium  high  xhigh  max" \
+                "default  low  medium  high  xhigh  max" \
                 "Resend with one of those." > "$scratch/body"
 
             reply "$scratch/body" "$message"
@@ -447,6 +480,10 @@ if [ -n "$asked" ]; then
             exit 0
             ;;
     esac
+
+    MAIL_AGENT_EFFORT_SOURCE=message
+
+    export MAIL_AGENT_EFFORT_SOURCE
 fi
 
 effort=$(cat "$work/effort" 2>/dev/null)
@@ -485,6 +522,10 @@ started=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
 # Plan mode writes its plan under the agent's config directory; mark the
 # clock so the ones written by this turn can be told from the rest.
 touch "$scratch/mark"
+
+MAIL_AGENT_MODE=$mode
+
+export MAIL_AGENT_MODE
 
 MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-$driver" \
     "$work" "$scratch" "$scratch/prompt" "$mode" "$model" "$effort" \
@@ -564,6 +605,7 @@ mail_patches() {
             printf "X-Mail-Agent: %s\n" "$agent"
             printf "X-Mail-Session: %s\n" "$session"
             printf "X-Mail-Repo: %s\n" "$repo"
+            "$HOME/bin/mail-agent-effort-headers" "$session"
             printf "Auto-Submitted: auto-replied\n"
 
             # format-patch writes an mbox, whose From_ line is not a

@@ -1,0 +1,32 @@
+#!/bin/sh
+# Report the selected effort, including settings inherited by a reply.
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: mail-agent-effort-headers <session>" >&2
+    exit 64
+fi
+
+work="$HOME/mail/.agent/work/$1"
+effort=$(cat "$work/effort" 2>/dev/null)
+source=${MAIL_AGENT_EFFORT_SOURCE:-session}
+agent=$(cat "$work/agent" 2>/dev/null)
+driver=$(awk -v agent="${agent:-$MAIL_AGENT}" '$1 == agent { print $2; exit }' \
+    "$HOME/.config/mail-agent/agents")
+
+if [ -z "$effort" ]; then
+    effort=default
+    source=${MAIL_AGENT_EFFORT_SOURCE:-default}
+fi
+
+if [ "${driver:-$agent}" = pi ]; then
+    effort=unsupported
+fi
+
+printf "X-Mail-Effort: %s\n" "$effort"
+printf "X-Mail-Effort-Source: %s\n" "$source"
+
+if [ -n "$MAIL_AGENT_MODE" ]; then
+    printf "X-Mail-Mode: %s\n" "$MAIL_AGENT_MODE"
+fi
+
+printf "X-Label: effort=%s\n" "$effort"

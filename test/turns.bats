@@ -258,3 +258,105 @@ load helper
     [ ! -e "$work/effort" ]
     grep -rq "no \"ludicrous\" effort level" "$case_root/outgoing"
 }
+
+@test "effort headers persist, report their source, and reset" {
+    new_repository
+    message "$queue/001"
+    sed -i '1iX-Mail-Effort: HIGH' "$queue/001"
+    run_turn
+
+    [ "$(cat "$work/effort")" = high ]
+    grep -rq '^X-Mail-Effort: high$' "$case_root/outgoing"
+    grep -rq '^X-Mail-Effort-Source: message$' "$case_root/outgoing"
+    mkdir -p "$queue"
+    message "$queue/002"
+    run_turn
+
+    [ "$(grep -c '^high$' "$case_root/driver-arguments")" -eq 2 ]
+    grep -rq '^X-Mail-Effort-Source: session$' "$case_root/outgoing"
+    mkdir -p "$queue"
+    message "$queue/003"
+    sed -i '1iX-Mail-Effort: default' "$queue/003"
+    run_turn
+
+    [ ! -e "$work/effort" ]
+    [ "$(tail -1 "$case_root/driver-arguments")" = "" ]
+    grep -rq '^X-Mail-Effort: default$' "$case_root/outgoing"
+}
+
+@test "priority provides effort only without an explicit control" {
+    new_repository
+    message "$queue/001"
+    sed -i '1iPriority: urgent' "$queue/001"
+    run_turn
+
+    [ "$(cat "$work/effort")" = high ]
+    mkdir -p "$queue"
+    message "$queue/002" '!effort max'
+    sed -i '1iPriority: non-urgent\nX-Mail-Effort: MAX' "$queue/002"
+    run_turn
+
+    [ "$(cat "$work/effort")" = max ]
+}
+
+@test "conflicting and malformed effort controls do not invoke the driver" {
+    new_repository
+
+    for headers in $'X-Mail-Effort: low\nX-Mail-Effort: high' \
+        'X-Mail-Effort: low' 'X-Mail-Effort:' 'X-Mail-Effort: nonsense'; do
+        mkdir -p "$queue"
+        message "$queue/001" '!effort high'
+        printf '%s\n' "$headers" > "$case_root/headers"
+        cat "$queue/001" >> "$case_root/headers"
+        cp "$case_root/headers" "$queue/001"
+        run_turn
+
+        [ ! -e "$case_root/driver-arguments" ]
+        [ ! -e "$work/effort" ]
+    done
+}
+
+@test "patches and their reply report effort and mode" {
+    new_repository
+    message "$queue/001" $'!execute\n!effort max\nPlease change the file.'
+    touch "$case_root/commit"
+    run_turn
+
+    [ "$(mail_count)" -eq 2 ]
+
+    for reply in "$case_root/outgoing"/*; do
+        [ "$(mhdr -h x-mail-effort "$reply")" = max ]
+        [ "$(mhdr -h x-mail-mode "$reply")" = execute ]
+        [ "$(mhdr -h x-label "$reply")" = effort=max ]
+    done
+}
+
+@test "pi effort metadata reports unsupported" {
+    mkdir -p "$work"
+    printf 'pi\n' > "$work/agent"
+    printf 'max\n' > "$work/effort"
+
+    run invoke "$case_home/bin/mail-agent-effort-headers" "$session"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'X-Mail-Effort: unsupported'* ]]
+}
+
+@test "invalid headers preserve the previous effort setting" {
+    new_repository
+    message "$queue/001" '!effort high'
+    run_turn
+
+    for headers in 'X-Mail-Effort:' 'X-Mail-Effort: nonsense' \
+        'Priority: high' $'Priority: urgent\nPriority: normal'; do
+        mkdir -p "$queue"
+        message "$queue/002"
+        printf '%s\n' "$headers" > "$case_root/headers"
+        cat "$queue/002" >> "$case_root/headers"
+        cp "$case_root/headers" "$queue/002"
+        run_turn
+
+        [ "$(cat "$work/effort")" = high ]
+        [ "$(grep -c '^high$' "$case_root/driver-arguments")" -eq 1 ]
+    done
+}

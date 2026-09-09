@@ -73,3 +73,16 @@ alternative_order text/plain text/html
 # paints a removal cannot tell one from a markdown bullet.
 message-hook '~s "\\[PATCH"'   'source ~/.mutt/diff.muttrc'
 message-hook '!~s "\\[PATCH"' 'source ~/.mutt/nodiff.muttrc'
+
+# Set effort on this draft only. Single quotes defer variable expansion
+# until the macro runs, so each invocation restores the current editor.
+macro compose \eh '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort high"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: high"<enter>' "set high effort"
+macro compose \eM '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort max"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: max"<enter>' "set maximum effort"
+macro compose \ed '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort default"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: default"<enter>' "reset effort to the driver default"
+
+# Replies report effort in X-Label; raw header patterns also match sent
+# drafts, which have no generated label yet.
+set index_format = "%4C %Z %{%b %d} %-15.15L %-18.18y %s"
+color index yellow default "~h '^X-Mail-Effort: *high[[:space:]]*$'"
+color index brightred default "~h '^X-Mail-Effort: *(xhigh|max)[[:space:]]*$'"
+unignore X-Mail-Effort: X-Mail-Effort-Source: X-Mail-Mode:

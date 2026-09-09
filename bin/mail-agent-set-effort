@@ -1,0 +1,32 @@
+#!/usr/bin/perl
+# Mutt editor command: replace the effort header in one draft.
+
+use strict;
+use warnings;
+
+my ($effort, $draft) = @ARGV;
+
+die "usage: mail-agent-set-effort <default|low|medium|high|xhigh|max> <draft>\n"
+    unless @ARGV == 2 && $effort =~ /\A(?:default|low|medium|high|xhigh|max)\z/;
+
+open my $input, "<", $draft or die "open $draft: $!\n";
+binmode $input;
+
+my $message = do { local $/; <$input> };
+
+close $input or die "close $draft: $!\n";
+
+my ($headers, $separator, $body) = split /(\r?\n\r?\n)/, $message, 2;
+
+die "draft has no header separator\n" unless defined $body;
+
+my $newline = $separator eq "\r\n\r\n" ? "\r\n" : "\n";
+
+$headers .= $newline;
+$headers =~ s/^X-Mail-Effort:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*\r?\n//gmi;
+$headers .= "X-Mail-Effort: $effort";
+
+open my $output, ">", $draft or die "open $draft: $!\n";
+binmode $output;
+print {$output} $headers, $separator, $body or die "write $draft: $!\n";
+close $output or die "close $draft: $!\n";

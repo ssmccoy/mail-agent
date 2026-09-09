@@ -86,3 +86,30 @@ load helper
     [[ "$output" == *'### 1. Which branch?'* ]]
     [[ "$output" == *'**main** — Use main.'* ]]
 }
+
+@test "draft effort replacement preserves other headers and body" {
+    printf 'To: reader@example.invalid\r\nx-mail-effort: low\r\n continuation\r\nSubject: example\r\nX-Mail-Effort: medium\r\n\r\nX-Mail-Effort: body text\r\n\000tail' > "$case_root/draft"
+    printf 'To: reader@example.invalid\r\nSubject: example\r\nX-Mail-Effort: max\r\n\r\nX-Mail-Effort: body text\r\n\000tail' > "$case_root/expected"
+
+    invoke "$case_home/bin/mail-agent-set-effort" max "$case_root/draft"
+
+    cmp "$case_root/expected" "$case_root/draft"
+    invoke "$case_home/bin/mail-agent-set-effort" max "$case_root/draft"
+
+    cmp "$case_root/expected" "$case_root/draft"
+}
+
+@test "draft effort validation leaves malformed drafts unchanged" {
+    printf 'No header separator\n' > "$case_root/draft"
+    cp "$case_root/draft" "$case_root/expected"
+
+    run invoke "$case_home/bin/mail-agent-set-effort" high "$case_root/draft"
+
+    [ "$status" -ne 0 ]
+    cmp "$case_root/expected" "$case_root/draft"
+
+    run invoke "$case_home/bin/mail-agent-set-effort" bogus "$case_root/draft"
+
+    [ "$status" -ne 0 ]
+    cmp "$case_root/expected" "$case_root/draft"
+}

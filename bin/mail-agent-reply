@@ -38,6 +38,7 @@ sent="<c.$session.$(date +%s%N)@$fqdn>"
     printf "Message-Id: %s\n" "$sent"
     printf "X-Mail-Agent: %s\n" "$agent"
     printf "X-Mail-Session: %s\n" "$session"
+    "$HOME/bin/mail-agent-effort-headers" "$session"
 
     if [ -n "$MAIL_AGENT_REPO" ]; then
         printf "X-Mail-Repo: %s\n" "$MAIL_AGENT_REPO"
