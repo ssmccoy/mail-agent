@@ -2,10 +2,10 @@
 
 Run `make test` for the offline Bats suite. Run `make test-shells` to execute
 shell programs, including nested invocations, under dash and Bash in POSIX
-mode. Run `make test-syntax` for shell and Perl syntax checks. These targets do
-not install software or contact model services.
+mode. Run `make test-syntax` for shell syntax checks. These targets do not
+install software or contact model services.
 
-Install bats-core, mblaze, Git, jq, awk, Perl, pandoc, and the Linux utilities
+Install bats-core, mblaze, Git, jq, awk, pandoc, and the Linux utilities
 `flock` and `timeout`. The suite also uses standard filesystem and text tools
 with the GNU options already required by the application. The runner reports
 missing required dependencies before executing tests. Bash is a test

@@ -1,16 +1,31 @@
 load helper
 
-@test "rewrap preserves headers, figures, and the complete diff" {
-    printf 'Subject: a long subject which must remain unchanged\n\none two three four five six seven\n\n    a long indented figure remains unchanged\n\n---\n file | 1 +\ndiff --git a/file b/file\n+one two three four five six seven\n' > "$case_root/patch"
-    invoke "$case_home/bin/mail-agent-rewrap" 16 < "$case_root/patch" > "$case_root/wrapped"
-    sed -n '/^---$/,$p' "$case_root/patch" > "$case_root/before"
-    sed -n '/^---$/,$p' "$case_root/wrapped" > "$case_root/after"
+@test "patch mail wraps Markdown prose and preserves figures and diff" {
+    new_repository
+    message "$queue/001" $'!execute\nPlease change the file.'
+    printf 'Change example file\n\none two three four five six seven\n\n    a long indented figure remains unchanged\n\n[link][target]\n\n[target]: https://example.invalid\n' > "$case_root/commit"
+    child_env+=("MAIL_AGENT_WRAP=16")
+
+    run run_turn
+
+    [ "$status" -eq 0 ]
+
+    for mail in "$case_root"/outgoing/*; do
+        if mhdr -h subject "$mail" | grep -q '\[PATCH'; then
+            patch="$mail"
+        fi
+    done
+
+    invoke git -C "$work/repo" format-patch -1 --stdout > "$case_root/original"
+    sed -n '/^---$/,$p' "$case_root/original" > "$case_root/before"
+    sed -n '/^---$/,$p' "$patch" > "$case_root/after"
 
     cmp "$case_root/before" "$case_root/after"
-    grep -Fx 'one two three' "$case_root/wrapped"
-    grep -Fx 'four five six' "$case_root/wrapped"
-    grep -Fx '    a long indented figure remains unchanged' "$case_root/wrapped"
-    [ "$(head -1 "$case_root/patch")" = "$(head -1 "$case_root/wrapped")" ]
+    grep -Fx 'one two three' "$patch"
+    grep -Fx 'four five six' "$patch"
+    grep -Fx '    a long indented figure remains unchanged' "$patch"
+    grep -Fx '[link](https://example.invalid)' "$patch"
+    [ "$(mhdr -h subject "$patch")" = "[PATCH] Change example file" ]
 }
 
 @test "renderer escapes prose and tool results and filters timestamps" {

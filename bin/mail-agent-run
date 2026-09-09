@@ -601,6 +601,13 @@ mail_patches() {
         -o "$scratch/patches" "$from..HEAD"
 
     for patch in "$scratch"/patches/*.patch; do
+        sed '1,/^$/d; /^---$/,$d' "$patch" > "$scratch/commit-message"
+
+        if ! pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns="$wrap" \
+                "$scratch/commit-message" > "$scratch/wrapped-message"; then
+            cp "$scratch/commit-message" "$scratch/wrapped-message"
+        fi
+
         {
             printf "X-Mail-Agent: %s\n" "$agent"
             printf "X-Mail-Session: %s\n" "$session"
@@ -609,11 +616,11 @@ mail_patches() {
             printf "Auto-Submitted: auto-replied\n"
 
             # format-patch writes an mbox, whose From_ line is not a
-            # header and would be read as one. The message is wrapped
-            # here rather than asked for: an agent that writes one long
-            # line per paragraph does it every time.
-            sed "1{/^From [0-9a-f]\{40\} /d;}" "$patch" \
-                | "$HOME/bin/mail-agent-rewrap" "$wrap"
+            # header and would be read as one. Format only the commit
+            # message; preserve the headers, diffstat, and diff.
+            sed -n '1d; p; /^$/q' "$patch"
+            cat "$scratch/wrapped-message"
+            sed -n '/^---$/,$p' "$patch"
         } | "${MAIL_AGENT_SENDMAIL:-sendmail}" -t
     done
 

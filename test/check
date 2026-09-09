@@ -6,7 +6,6 @@ cd "$(dirname "$0")/.."
 for script in bin/* test/run test/check test/commands/*; do
     case $(head -1 "$script") in
         '#!/bin/sh') sh -n "$script" ;;
-        '#!/usr/bin/perl') perl -c "$script" ;;
         '#!/usr/bin/env node')
             printf "unexpected Node program: %s\n" "$script" >&2
             exit 1

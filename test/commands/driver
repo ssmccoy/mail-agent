@@ -20,7 +20,12 @@ fi
 if [ -f "$CASE_ROOT/commit" ]; then
     printf "changed\n" > "$work/repo/file"
     git -C "$work/repo" add file
-    git -C "$work/repo" commit -qm "Change example file"
+    if [ -s "$CASE_ROOT/commit" ]; then
+        git -C "$work/repo" commit -qF "$CASE_ROOT/commit"
+    else
+        git -C "$work/repo" commit -qm "Change example file"
+    fi
+
     rm "$CASE_ROOT/commit"
 fi
 
