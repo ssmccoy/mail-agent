@@ -654,8 +654,11 @@ fi
 
 # The driver wrote reply.md; rewrap it so a terminal reader is not
 # scrolling sideways, and leave it as markdown for mailcap to render.
+#
+# Use reference links here, too
 if pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns=79 \
-        "$scratch/reply.md" > "$scratch/wrapped.md" 2>/dev/null; then
+    --reference-links "$scratch/reply.md" > "$scratch/wrapped.md" 2>/dev/null
+then
     mv "$scratch/wrapped.md" "$scratch/reply.md"
 fi
 
