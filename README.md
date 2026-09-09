@@ -173,12 +173,12 @@ headers describe configuration, not measured reasoning usage.
 
 Source `mutt/muttrc.example` or copy its compose macros and display rules into
 your Mutt configuration after installing the scripts. In the compose menu,
-Alt-h selects high effort, Alt-Shift-m selects max, and Alt-d resets to
-default. Each shortcut replaces the effort header in the current draft and
-restores the configured editor. It does not change defaults for other drafts.
-The shortcut does not modify body directives: if the draft already contains an
-`!effort` line, remove it or make it agree with the header. For other levels,
-use Mutt’s `E` command to edit the draft headers.
+Alt-e followed by `d`, `l`, `m`, `h`, `x`, or `M` selects default, low, medium,
+high, xhigh, or max, respectively. Each shortcut replaces the effort header in
+the current draft and restores the configured editor. It does not change
+defaults for other drafts. The shortcut does not modify body directives: if the
+draft already contains an `!effort` line, remove it or make it agree with the
+header. For other levels, use Mutt’s `E` command to edit the draft headers.
 
 The example colors high effort yellow and xhigh/max bright red, and displays
 the generated `X-Label: effort=<level>` in the index. Replies to model turns

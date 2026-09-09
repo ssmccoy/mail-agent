@@ -1,32 +1,33 @@
-#!/usr/bin/perl
+#!/bin/sh
 # Mutt editor command: replace the effort header in one draft.
 
-use strict;
-use warnings;
+if [ "$#" -ne 2 ]; then
+    echo "usage: mail-agent-set-effort <default|low|medium|high|xhigh|max> <draft>" >&2
+    exit 64
+fi
 
-my ($effort, $draft) = @ARGV;
+case $1 in
+    default|low|medium|high|xhigh|max) ;;
+    *) echo "invalid effort: $1" >&2; exit 64 ;;
+esac
 
-die "usage: mail-agent-set-effort <default|low|medium|high|xhigh|max> <draft>\n"
-    unless @ARGV == 2 && $effort =~ /\A(?:default|low|medium|high|xhigh|max)\z/;
+size=$(wc -c < "$2") || exit
+replacement=$(mktemp -- "$2.XXXXXXXX") || exit
 
-open my $input, "<", $draft or die "open $draft: $!\n";
-binmode $input;
+trap 'rm -f "$replacement"' EXIT
 
-my $message = do { local $/; <$input> };
+offset=$(LC_ALL=C awk -v effort="$1" -v output="$replacement" -v size="$size" '
+    { offset += length($0) + 1 }
+    /^\r?$/ {
+        printf "X-Mail-Effort: %s%s\n%s\n", effort, $0, $0 > output
+        print offset + 1
+        found = 1
+        exit
+    }
+    !/^[ \t]/ { skip = tolower($0) ~ /^x-mail-effort:/ }
+    !skip { print > output }
+    END { if (!found || offset > size) exit 1 }
+' < "$2") || exit
 
-close $input or die "close $draft: $!\n";
-
-my ($headers, $separator, $body) = split /(\r?\n\r?\n)/, $message, 2;
-
-die "draft has no header separator\n" unless defined $body;
-
-my $newline = $separator eq "\r\n\r\n" ? "\r\n" : "\n";
-
-$headers .= $newline;
-$headers =~ s/^X-Mail-Effort:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*\r?\n//gmi;
-$headers .= "X-Mail-Effort: $effort";
-
-open my $output, ">", $draft or die "open $draft: $!\n";
-binmode $output;
-print {$output} $headers, $separator, $body or die "write $draft: $!\n";
-close $output or die "close $draft: $!\n";
+# Copy the body without changing its bytes or requiring a final newline.
+tail -c "+$offset" < "$2" >> "$replacement" && mv -- "$replacement" "$2"

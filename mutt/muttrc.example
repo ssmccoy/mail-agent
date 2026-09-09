@@ -76,9 +76,12 @@ message-hook '!~s "\\[PATCH"' 'source ~/.mutt/nodiff.muttrc'
 
 # Set effort on this draft only. Single quotes defer variable expansion
 # until the macro runs, so each invocation restores the current editor.
-macro compose \eh '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort high"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: high"<enter>' "set high effort"
-macro compose \eM '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort max"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: max"<enter>' "set maximum effort"
-macro compose \ed '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort default"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: default"<enter>' "reset effort to the driver default"
+macro compose \eed '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort default"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: default"<enter>' "set default effort"
+macro compose \eel '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort low"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: low"<enter>' "set low effort"
+macro compose \eem '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort medium"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: medium"<enter>' "set medium effort"
+macro compose \eeh '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort high"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: high"<enter>' "set high effort"
+macro compose \eex '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort xhigh"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: xhigh"<enter>' "set xhigh effort"
+macro compose \eeM '<enter-command>set my_mail_agent_editor="$editor"<enter><enter-command>set editor="~/bin/mail-agent-set-effort max"<enter><edit-headers><enter-command>set editor="$my_mail_agent_editor"<enter><enter-command>echo "Effort: max"<enter>' "set max effort"
 
 # Replies report effort in X-Label; raw header patterns also match sent
 # drafts, which have no generated label yet.

@@ -99,6 +99,16 @@ load helper
     cmp "$case_root/expected" "$case_root/draft"
 }
 
+@test "draft effort rejects an unterminated header separator" {
+    printf 'Subject: example\n\r' > "$case_root/draft"
+    cp "$case_root/draft" "$case_root/expected"
+
+    run invoke "$case_home/bin/mail-agent-set-effort" high "$case_root/draft"
+
+    [ "$status" -ne 0 ]
+    cmp "$case_root/expected" "$case_root/draft"
+}
+
 @test "draft effort validation leaves malformed drafts unchanged" {
     printf 'No header separator\n' > "$case_root/draft"
     cp "$case_root/draft" "$case_root/expected"
@@ -112,4 +122,15 @@ load helper
 
     [ "$status" -ne 0 ]
     cmp "$case_root/expected" "$case_root/draft"
+}
+
+@test "draft effort insertion and resets preserve an unterminated body" {
+    printf 'To: reader@example.invalid\nSubject: example\n\nX-Mail-Effort: body text' > "$case_root/draft"
+
+    for effort in low medium high xhigh max default; do
+        printf 'To: reader@example.invalid\nSubject: example\nX-Mail-Effort: %s\n\nX-Mail-Effort: body text' "$effort" > "$case_root/expected"
+        invoke "$case_home/bin/mail-agent-set-effort" "$effort" "$case_root/draft"
+
+        cmp "$case_root/expected" "$case_root/draft"
+    done
 }
