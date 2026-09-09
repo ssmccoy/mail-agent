@@ -218,6 +218,7 @@ load helper
 
     [ "$(cat "$work/project")" = "$source_repo" ]
     [ -e "$work/repo/.git" ]
+    [ "$(cut -d" " -f3 "$work/turns")" = "$(git -C "$work/repo" rev-parse HEAD)" ]
     grep -Fx research "$case_root/driver-arguments"
 }
 

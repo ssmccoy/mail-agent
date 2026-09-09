@@ -689,8 +689,14 @@ mail_patches
 
 # Record the response so a later reply can tell the tip from an earlier
 # point, and fork the exact session and commit that produced it.
+commit=-
+
+if [ -n "$repo" ]; then
+    commit=$(git -C "$work/repo" rev-parse HEAD 2>/dev/null || echo -)
+fi
+
 printf "%s %s %s\n" "$sent" "$(cat "$work/agent-session" 2>/dev/null)" \
-    "$(git -C "$work/repo" rev-parse HEAD 2>/dev/null || echo -)" >> "$work/turns"
+    "$commit" >> "$work/turns"
 
 rm -f "$message"
 rmdir "$queue" 2>/dev/null
