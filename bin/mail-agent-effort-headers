@@ -29,4 +29,12 @@ if [ -n "$MAIL_AGENT_MODE" ]; then
     printf "X-Mail-Mode: %s\n" "$MAIL_AGENT_MODE"
 fi
 
-printf "X-Label: effort=%s\n" "$effort"
+label="$effort"
+
+case "$effort" in
+    default) label="" ;;
+    medium) label="mid" ;;
+    unsupported) label="-" ;;
+esac
+
+printf "X-Label: %s\n" "$label"

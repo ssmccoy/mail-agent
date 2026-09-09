@@ -85,7 +85,7 @@ macro compose \eeM '<enter-command>set my_mail_agent_editor="$editor"<enter><ent
 
 # Replies report effort in X-Label; raw header patterns also match sent
 # drafts, which have no generated label yet.
-set index_format = "%4C %Z %{%b %d} %-15.15L %-18.18y %s"
+set index_format = "%4C %Z %{%b %d} %-15.15L %-5.5y %s"
 color index yellow default "~h '^X-Mail-Effort: *high[[:space:]]*$'"
 color index brightred default "~h '^X-Mail-Effort: *(xhigh|max)[[:space:]]*$'"
 unignore X-Mail-Effort: X-Mail-Effort-Source: X-Mail-Mode:

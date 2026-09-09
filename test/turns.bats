@@ -328,7 +328,7 @@ load helper
     for reply in "$case_root/outgoing"/*; do
         [ "$(mhdr -h x-mail-effort "$reply")" = max ]
         [ "$(mhdr -h x-mail-mode "$reply")" = execute ]
-        [ "$(mhdr -h x-label "$reply")" = effort=max ]
+        [ "$(mhdr -h x-label "$reply")" = max ]
     done
 }
 
@@ -359,5 +359,26 @@ load helper
 
         [ "$(cat "$work/effort")" = high ]
         [ "$(grep -c '^high$' "$case_root/driver-arguments")" -eq 1 ]
+    done
+}
+
+@test "effort labels abbreviate display values and preserve metadata" {
+    mkdir -p "$work"
+    printf 'codex\n' > "$work/agent"
+
+    for effort in default low medium high xhigh max unsupported; do
+        label="$effort"
+
+        case "$effort" in
+            default) label="" ;;
+            medium) label="mid" ;;
+            unsupported) label="-" ;;
+        esac
+
+        printf '%s\n' "$effort" > "$work/effort"
+        invoke "$case_home/bin/mail-agent-effort-headers" "$session" > "$case_root/headers"
+
+        [ "$(mhdr -h x-mail-effort "$case_root/headers")" = "$effort" ]
+        [ "$(mhdr -h x-label "$case_root/headers")" = "$label" ]
     done
 }
