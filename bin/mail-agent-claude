@@ -45,15 +45,45 @@ else
 fi
 
 limit=${MAIL_AGENT_TIMEOUT:-60m}
-# A research thread has no repository to read from, and nothing outside
-# the working directory is granted to it.
 repo=$(cat "$work/project" 2>/dev/null)
+access=$mode
 
+if [ -z "$repo" ]; then
+    access=research
+fi
+
+# Research has private temporary storage and no writable checkout.
+if [ "$access" = research ]; then
+    mkdir -p "${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}" || exit 70
+
+    MAIL_AGENT_RESEARCH_TMP=$(mktemp -d "${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}/research.XXXXXXXX") || exit 70
+
+    export MAIL_AGENT_RESEARCH_TMP
+
+    trap 'rm -rf "$MAIL_AGENT_RESEARCH_TMP"' EXIT
+fi
+
+# Grant the source repository only when the thread has one.
 if [ -n "$repo" ]; then
     with_repo="-r $repo"
+
+    if [ "$access" = research ]; then
+        objects=$(git -C "$work/repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+
+        if [ -n "$objects" ]; then
+            with_repo="$with_repo -r $objects"
+        fi
+    fi
 else
     with_repo=""
 fi
+
+profile() {
+    case $1 in
+        research) echo mail-agent-claude-research ;;
+        *)        echo mail-agent-claude ;;
+    esac
+}
 
 permission_mode() {
     case $1 in
@@ -87,7 +117,7 @@ fi
     cd "$work/repo" || exit 70
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
-        -c "$HOME/.config/landlock/mail-agent-claude.cfg" $with_repo \
+        -c "$HOME/.config/landlock/$(profile "$access").cfg" $with_repo \
         "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
         --append-system-prompt-file "$HOME/.config/mail-agent/instructions.md" \

@@ -15,7 +15,7 @@ application with `git am`.
 
 Postfix, the queue, and the workers run on one host. Agents use network access
 for model requests and other tasks. The source repository is read-only to the
-agent; execute turns can modify the thread's worktree.
+agent; execute turns can modify the thread’s worktree.
 
 ## Requirements
 
@@ -125,9 +125,9 @@ problem, request a plan, then send `!execute` to implement it. Claude uses its
 permission mode to disable edits. Codex uses a Landlock profile with read-only
 access to the worktree.
 
-Research mode can run without a project. If the subject does not identify a
-configured repository, the agent runs in an empty directory and researches the
-request through network access.
+New research threads run in an empty directory without a repository, even if
+the subject matches a configured project. They use network access to research
+the request. Followups default to research until another mode is requested.
 
     To: claude
     Subject: NVMe write amplification under zoned namespaces
@@ -136,13 +136,28 @@ request through network access.
     How do zoned namespaces affect write amplification?
     Include sources and describe the implementation costs.
 
-A research thread with a recognized project can also read its code. An
-`!execute` request in a thread without a repository receives an explanation
-without starting an agent turn.
+Research requested within an existing code thread retains read access to its
+repository. An `!execute` request in a thread without a repository receives an
+explanation without starting an agent turn.
+
+Research uses dedicated Landlock profiles for all drivers. The working
+directory and any assigned repository are read-only; shared Git objects are
+readable only for an assigned worktree. Build caches are not writable. Each
+turn has private temporary storage, deleted after response extraction. The
+CLI’s session state and authentication files remain writable for continuation
+and credential refresh. Landlock applies the same permissions to the CLI and
+its tools; these runtime directories are writable by both. Research therefore
+restricts application writes, but does not enforce that the response is the
+only filesystem write.
+
+Codex disables ancestor project discovery for repository-free threads and
+enables live web search for research. HTTPS access remains available under
+Landlock. Repository-free threads retain the research filesystem restrictions
+when explicitly switched to investigate or plan.
 
 `!branch <name>` selects the starting branch. On a later message, it fetches
-and switches to the requested branch and resets the patch base to that branch's
-tip. Without this directive, a new thread uses the source repository's default
+and switches to the requested branch and resets the patch base to that branch’s
+tip. Without this directive, a new thread uses the source repository’s default
 branch. An unknown branch produces an error reply without running the agent.
 
     To: claude
@@ -159,7 +174,7 @@ waiting in the turn queue.
 
 Use `X-Mail-Effort: <level>` or `!effort <level>` to select `low`, `medium`,
 `high`, `xhigh`, or `max`. Values are case insensitive. The selection persists
-until changed; `default` restores the driver's default. Empty, unknown, or
+until changed; `default` restores the driver’s default. Empty, unknown, or
 conflicting values prevent the turn from running.
 
     To: astra
@@ -190,9 +205,9 @@ replies and details responses do not report a model turn mode.
 
 The example Mutt configuration provides compose shortcuts: Alt-e followed by
 `d`, `l`, `m`, `h`, `x`, or `M` selects default, low, medium, high, xhigh, or
-max. Each shortcut replaces the current draft's effort header and restores the
+max. Each shortcut replaces the current draft’s effort header and restores the
 editor setting. It does not change other drafts or body directives. Delete any
-conflicting `!effort` line or make it agree with the header. Mutt's `E` command
+conflicting `!effort` line or make it agree with the header. Mutt’s `E` command
 also allows direct header editing.
 
 The example displays `X-Label: effort=<level>` in the index, colors high effort
@@ -220,7 +235,7 @@ figures and diffs are preserved. Set `MAIL_AGENT_WRAP` to change that width.
 Uncommitted edits are not delivered.
 
 Reply to a patch and comment below the relevant quoted hunk. Inline quotations
-are retained in the agent's request. Trailing quotations and their attribution
+are retained in the agent’s request. Trailing quotations and their attribution
 lines are stripped.
 
 To apply patches in Mutt, tag each with `t`, or use `T` with `~s PATCH`, then
@@ -231,8 +246,8 @@ patches.
 
 | Key      | Menu         | Action                                                              |
 |----------|--------------|---------------------------------------------------------------------|
-| `A`      | Index, pager | Apply patches to the repository containing Mutt's working directory |
-| `esc-A`  | Index, pager | Apply patches to the request's source repository                    |
+| `A`      | Index, pager | Apply patches to the repository containing Mutt’s working directory |
+| `esc-A`  | Index, pager | Apply patches to the request’s source repository                    |
 | `W`      | Attachments  | Open an attachment in w3m                                           |
 | `ctrl-d` | Index, pager | Delete the thread and retire its session                            |
 
@@ -249,8 +264,8 @@ stated defaults. Respond by number or below each quoted question:
 
 ## Session inspection
 
-`mail-agent-sessions` lists each thread's agent, activity, turn count, cost,
-and initial subject. Activity is determined from the worker's session lock and
+`mail-agent-sessions` lists each thread’s agent, activity, turn count, cost,
+and initial subject. Activity is determined from the worker’s session lock and
 queued messages.
 
 `mail-agent-details [session]` reports the project, branch, patch base, turns,
@@ -275,7 +290,7 @@ do not grant access to the Postfix maildrop directory.
 The profiles allow TCP connections to port 443. Network access is available in
 every mode, including research. It is not restricted to model API requests.
 
-Go caches are configured under `~/mail/.agent/go`, and proto's executable shims
+Go caches are configured under `~/mail/.agent/go`, and proto’s executable shims
 are included in `PATH`. Other toolchains may require environment settings and
 filesystem permissions in the profiles.
 

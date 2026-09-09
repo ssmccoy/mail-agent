@@ -210,15 +210,15 @@ load helper
     [ "$(cut -d" " -f3 "$work/turns")" = "-" ]
 }
 
-@test "research naming a project is given its worktree" {
+@test "new research ignores a project named in the subject" {
     new_repository
     message "$queue/001" '!research' 'sample: how is this done elsewhere'
 
     run_turn
 
-    [ "$(cat "$work/project")" = "$source_repo" ]
-    [ -e "$work/repo/.git" ]
-    [ "$(cut -d" " -f3 "$work/turns")" = "$(git -C "$work/repo" rev-parse HEAD)" ]
+    [ ! -e "$work/project" ]
+    [ ! -e "$work/repo/.git" ]
+    [ -f "$work/research" ]
     grep -Fx research "$case_root/driver-arguments"
 }
 
@@ -381,4 +381,39 @@ load helper
         [ "$(mhdr -h x-mail-effort "$case_root/headers")" = "$effort" ]
         [ "$(mhdr -h x-label "$case_root/headers")" = "$label" ]
     done
+}
+
+@test "research in an existing code thread preserves its repository" {
+    new_repository
+    message "$queue/001"
+    run_turn
+    mkdir -p "$queue"
+    message "$queue/002" "!research" "Re: sample: example"
+    run_turn
+
+    [ "$(cat "$work/project")" = "$source_repo" ]
+    [ -e "$work/repo/.git" ]
+    grep -Fx research "$case_root/driver-arguments"
+}
+
+@test "repository-free followups default to research" {
+    new_repository
+    message "$queue/001" "!research" "A greenfield idea"
+    run_turn
+    mkdir -p "$queue"
+    message "$queue/002" "Compare alternatives." "Re: A greenfield idea"
+    run_turn
+
+    [ "$(grep "^Mode:" "$case_root/prompts" | tail -1)" = "Mode: research" ]
+}
+
+@test "repository-free research does not inspect an ancestor checkout" {
+    new_repository
+    invoke git init -q "$case_home"
+    message "$queue/001" "!research" "A greenfield idea"
+    child_env+=("GIT_TRACE=$case_root/git-trace")
+
+    run_turn
+
+    [ ! -f "$case_root/git-trace" ] || ! grep -F "status --porcelain" "$case_root/git-trace"
 }

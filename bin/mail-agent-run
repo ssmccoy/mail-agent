@@ -208,12 +208,9 @@ MAIL_AGENT="$agent"
 
 export MAIL_AGENT
 
-# Research is asked of the web rather than of a repository. A subject
-# that names a project still gets its worktree; one that names none runs
-# in an empty directory instead of being refused, and the thread is
-# marked as having no repository so its later turns know it.
-if [ ! -d "$work" ] && [ "$(message_mode "$message")" = research ] &&
-   [ -z "$(project_repo "$(project_key "$message")")" ]; then
+# New research threads have no repository, regardless of their subject.
+# Existing code threads retain their repository when switching to research.
+if [ ! -d "$work" ] && [ "$(message_mode "$message")" = research ]; then
     mkdir -p "$work/repo"
     printf "%s\n" "$agent" > "$work/agent"
     mhdr -h subject "$message" > "$work/subject"
@@ -445,6 +442,10 @@ if [ -z "$mode" ]; then
     fi
 
     mode=investigate
+
+    if [ -f "$work/research" ]; then
+        mode=research
+    fi
 fi
 
 # Effort stays with the thread the way the alias does: a thread told to
@@ -565,9 +566,13 @@ printf "%s %s\n" "$started" "$(cat "$scratch/cost" 2>/dev/null || echo 0)" \
 
 # An execute turn that edited without committing delivers nothing, and
 # the sender cannot see that from the reply alone.
-uncommitted=$(git -C "$work/repo" status --porcelain 2>/dev/null | head -20)
+uncommitted=""
 
-if [ "$mode" = execute ] && [ -n "$uncommitted" ]; then
+if [ "$mode" = execute ]; then
+    uncommitted=$(git -C "$work/repo" status --porcelain 2>/dev/null | head -20)
+fi
+
+if [ -n "$uncommitted" ]; then
     {
         printf "\n\n---\n\n"
         printf "The turn left these files changed but not committed, so they\n"

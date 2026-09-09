@@ -166,3 +166,58 @@ invoke_driver() {
         "$case_root/result/usage.html"
     cmp "$case_root/ledger-before" "$work/cost"
 }
+
+@test "research drivers use restricted profiles without repository grants" {
+    prepare_driver
+    rm "$work/project"
+
+    for driver in claude codex pi; do
+        run invoke_driver "$driver" research
+
+        [ "$status" -eq 0 ]
+        grep -F "mail-agent-$driver-research.cfg" "$case_root/launcher-arguments"
+        ! grep -Fx "$source_repo" "$case_root/launcher-arguments"
+    done
+
+    invoke_driver codex research
+    grep -Fx "project_root_markers=[]" "$case_root/cli-arguments"
+    grep -Fx "web_search=\"live\"" "$case_root/cli-arguments"
+}
+
+@test "research profiles deny writes to code and shared build directories" {
+    for driver in claude codex pi; do
+        profile="$project_root/landlock/mail-agent-$driver-research.cfg"
+
+        [ -f "$profile" ]
+        ! grep -E "^rw[x]? (\.|~/mail/\.agent/(repos|go)|/proc|/tmp/mail-agent)$" "$profile"
+        grep -Fx "rox ." "$profile"
+        grep -Fx "connect-tcp 443" "$profile"
+    done
+}
+
+@test "research grants read access to an existing worktree object directory" {
+    prepare_driver
+    invoke git -C "$source_repo" worktree add -q "$work/repo"
+    objects=$(git -C "$work/repo" rev-parse --path-format=absolute --git-common-dir)
+
+    for driver in claude codex pi; do
+        invoke_driver "$driver" research
+
+        grep -Fx "$objects" "$case_root/launcher-arguments"
+        directory=$(cat "$case_root/research-directory")
+
+        [ -n "$directory" ]
+        [ ! -d "$directory" ]
+    done
+}
+
+@test "repository-free plan turns retain research filesystem restrictions" {
+    prepare_driver
+    rm "$work/project"
+
+    for driver in claude codex pi; do
+        invoke_driver "$driver" plan
+
+        grep -F "mail-agent-$driver-research.cfg" "$case_root/launcher-arguments"
+    done
+}
