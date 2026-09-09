@@ -89,7 +89,7 @@ else
 fi
 
 if [ "$follow" = no ]; then
-    jq -r --arg work "$work/" --arg since "" -f "$steps" < "$records"
+    jq -r --arg work "$work/" --arg since "" -f "$steps" < "$records" | $PAGER
 else
     tail -n +1 -f "$records" |
         jq -r --unbuffered --arg work "$work/" --arg since "" -f "$steps"
