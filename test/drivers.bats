@@ -141,3 +141,28 @@ invoke_driver() {
     grep -Fx "kubectl get pods" "$case_root/result/reply.md"
     [ "$(cat "$work/agent-session")" = "fixture-session" ]
 }
+
+@test "codex session usage includes the current turn before ledger append" {
+    prepare_driver
+
+    jq -c 'if .type == "turn.completed" then
+            .usage = {
+                input_tokens: 465000,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                reasoning_output_tokens: 0
+            }
+        else . end' "$case_root/codex.jsonl" > "$case_root/priced-codex.jsonl"
+    mv "$case_root/priced-codex.jsonl" "$case_root/codex.jsonl"
+    printf "2026-01-01T00:00:00Z 0\n" > "$work/cost"
+    cp "$work/cost" "$case_root/ledger-before"
+
+    run invoke_driver codex investigate
+
+    [ "$status" -eq 0 ]
+    [ "$(cat "$case_root/result/cost")" = "1.86" ]
+    grep -F '<caption>$1.86 this turn</caption>' "$case_root/result/usage.html"
+    grep -F '<td>session so far</td><td class="n">$1.86 over 2 turns</td>' \
+        "$case_root/result/usage.html"
+    cmp "$case_root/ledger-before" "$work/cost"
+}

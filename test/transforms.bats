@@ -65,7 +65,7 @@ load helper
     [[ "$output" == *'<caption>$1.20 this turn</caption>'* ]]
     [[ "$output" == *'<td>one</td><td class="n">1,234,567</td>'* ]]
     [[ "$output" == *'<th>total</th><th class="n">1,234,570</th>'* ]]
-    [[ "$output" == *'$1.25 over 1 turn'* ]]
+    [[ "$output" == *'$2.45 over 2 turns'* ]]
     [[ "$output" == *'<td class="n">Bash 1</td>'* ]]
     [[ "$output" == *'2 spawned, 1 completed'* ]]
 }
@@ -133,4 +133,26 @@ load helper
 
         cmp "$case_root/expected" "$case_root/draft"
     done
+}
+
+@test "usage includes the current cost with an empty session ledger" {
+    printf '%s\n' '{"total_cost_usd":1.86}' > "$case_root/result"
+    touch "$case_root/ledger"
+
+    run invoke "$case_home/bin/mail-agent-usage" "$case_root/result" \
+        "" "" "$case_root/ledger"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'<caption>$1.86 this turn</caption>'* ]]
+    [[ "$output" == *'<td>session so far</td><td class="n">$1.86 over 1 turn</td>'* ]]
+    [ ! -s "$case_root/ledger" ]
+}
+
+@test "usage includes the current cost without a session ledger" {
+    printf '%s\n' '{"total_cost_usd":1.86}' > "$case_root/result"
+
+    run invoke "$case_home/bin/mail-agent-usage" "$case_root/result" "" ""
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'<td>session so far</td><td class="n">$1.86</td>'* ]]
 }

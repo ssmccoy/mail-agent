@@ -184,8 +184,9 @@ $1 == "models_end" {
 
 $1 == "session" {
     if ($2 == "true") {
-        fact("session so far", cost($4) " over " count($3) " " \
-            ($3 == 1 ? "turn" : "turns"))
+        # The runner appends the current turn after the driver renders usage.
+        fact("session so far", cost($4 + $5) " over " count($3 + 1) " " \
+            ($3 == 0 ? "turn" : "turns"))
     } else {
         fact("session so far", cost($5))
     }
