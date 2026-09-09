@@ -7,7 +7,10 @@ for script in bin/* test/run test/check test/commands/*; do
     case $(head -1 "$script") in
         '#!/bin/sh') sh -n "$script" ;;
         '#!/usr/bin/perl') perl -c "$script" ;;
-        '#!/usr/bin/env node') node --check "$script" ;;
+        '#!/usr/bin/env node')
+            printf "unexpected Node program: %s\n" "$script" >&2
+            exit 1
+            ;;
     esac
 done
 

@@ -1,182 +1,218 @@
-#!/usr/bin/env node
-//
-// Summarise what a turn cost, from the result object the CLI prints and
-// the records it wrote, as a small HTML table.
-//
-// Usage: mail-agent-usage <result.json> <transcript.jsonl> <since>
-//                           [ledger]
-//
-// The ledger is a line per turn, "<timestamp> <cost>", written by the
-// worker; it is what makes a thread's running total available, since
-// each run only reports what it spent itself.
+#!/bin/sh
+#
+# Summarise what a turn cost, from the result object the CLI prints and
+# the records it wrote, as a small HTML table.
+#
+# Usage: mail-agent-usage <result.json> <transcript.jsonl> <since>
+#                         [ledger]
 
-"use strict";
+PATH=/usr/bin:/bin
 
-const fs = require("fs");
+export PATH
 
-function count(value) {
-    return Number(value || 0).toLocaleString("en-US");
+result=$1
+transcript=$2
+since=$3
+ledger=$4
+
+if [ -z "$result" ]; then
+    echo "usage: mail-agent-usage <result> <transcript> <since>" >&2
+    exit 64
+fi
+
+if [ -z "$transcript" ] || [ ! -f "$transcript" ]; then
+    transcript=/dev/null
+fi
+
+if [ -n "$ledger" ] && [ -f "$ledger" ]; then
+    session_present=true
+    session_stats=$(awk '
+        length($0) > 0 { cost += $2; turns++ }
+        END { printf "%d %.17g\n", turns, cost }
+    ' "$ledger")
+    session_turns=${session_stats%% *}
+    session_cost=${session_stats#* }
+else
+    session_present=false
+    session_turns=0
+    session_cost=0
+fi
+
+stream=$(mktemp "${TMPDIR:-/tmp}/mail-agent-usage.XXXXXXXX") || exit 70
+
+trap 'rm -f "$stream"' 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if ! jq -nr --slurpfile result "$result" \
+    --slurpfile transcript "$transcript" \
+    --arg since "$since" \
+    --argjson session_present "$session_present" \
+    --argjson session_turns "$session_turns" \
+    --argjson session_cost "$session_cost" \
+    -f "$HOME/.config/mail-agent/usage.jq" > "$stream"; then
+    exit 65
+fi
+
+awk -F '\t' '
+function decode(value, result, position, character, escaped) {
+    result = ""
+
+    for (position = 1; position <= length(value); position++) {
+        character = substr(value, position, 1)
+
+        if (character != "\\" || position == length(value)) {
+            result = result character
+            continue
+        }
+
+        escaped = substr(value, ++position, 1)
+
+        if (escaped == "n") result = result "\n"
+        else if (escaped == "r") result = result "\r"
+        else if (escaped == "t") result = result "\t"
+        else result = result escaped
+    }
+
+    return result
+}
+
+function escape(value) {
+    value = decode(value)
+    gsub(/&/, "\\&amp;", value)
+    gsub(/</, "\\&lt;", value)
+
+    return value
+}
+
+function count(value, digits, prefix) {
+    digits = sprintf("%.0f", value)
+    prefix = ""
+
+    while (length(digits) > 3) {
+        prefix = "," substr(digits, length(digits) - 2) prefix
+        digits = substr(digits, 1, length(digits) - 3)
+    }
+
+    return digits prefix
 }
 
 function cost(value) {
-    const amount = Number(value || 0);
+    if (value > 0 && value < 0.01) return sprintf("$%.4f", value)
 
-    return amount < 0.01 && amount > 0 ?
-        `$${amount.toFixed(4)}` : `$${amount.toFixed(2)}`;
+    return sprintf("$%.2f", value)
 }
 
-function seconds(value) {
-    return `${(Number(value || 0) / 1000).toFixed(1)}s`;
+function cell(tag, value, numeric) {
+    printf "<%s%s>%s</%s>", tag, numeric ? " class=\"n\"" : "", \
+        escape(value), tag
 }
 
-function escape(text) {
-    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+function fact(name, value) {
+    printf "<tr>"
+    cell("td", name, 0)
+    cell("td", value, 1)
+    print "</tr>"
 }
 
-function row(cells, tag) {
-    const element = tag || "td";
-
-    return "<tr>" + cells
-        .map((cell, column) => `<${element}${column ? ' class="n"' : ""}>` +
-            `${escape(cell)}</${element}>`)
-        .join("") + "</tr>\n";
+function model(tag, name, input, output, thinking, read, write, amount) {
+    printf "<tr>"
+    cell(tag, name, 0)
+    cell(tag, count(input), 1)
+    cell(tag, count(output), 1)
+    cell(tag, count(thinking), 1)
+    cell(tag, count(read), 1)
+    cell(tag, count(write), 1)
+    cell(tag, cost(amount), 1)
+    print "</tr>"
 }
 
-function models(usage) {
-    const names = Object.keys(usage || {});
-    const total = {input: 0, output: 0, read: 0, write: 0, think: 0, cost: 0};
+function header() {
+    printf "<tr>"
+    cell("th", "model", 0)
+    cell("th", "in", 1)
+    cell("th", "out", 1)
+    cell("th", "thinking", 1)
+    cell("th", "cache read", 1)
+    cell("th", "cache write", 1)
+    cell("th", "cost", 1)
+    print "</tr>"
+}
 
-    const rows = names.map((name) => {
-        const model = usage[name];
+BEGIN {
+    print "<!doctype html>"
+    print "<meta charset=\"utf-8\">"
+    print "<title>Turn cost</title>"
+    print "<style>"
+    print "body { font: 14px/1.5 ui-monospace, monospace; margin: 1.5rem; color: #222; }"
+    print "table { border-collapse: collapse; margin-bottom: 1.5rem; }"
+    print "th, td { padding: .25rem .75rem; border-bottom: 1px solid #ddd; text-align: left; }"
+    print "th { font-weight: normal; color: #555; }"
+    print "td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }"
+    print "caption { text-align: left; font-weight: bold; padding-bottom: .4rem; }"
+    print "</style>"
+    print "<table>"
+}
 
-        total.input += model.inputTokens || 0;
-        total.output += model.outputTokens || 0;
-        total.read += model.cacheReadInputTokens || 0;
-        total.write += model.cacheCreationInputTokens || 0;
-        total.think += model.thinkingTokens || 0;
-        total.cost += model.costUSD || 0;
+$1 == "turn" {
+    print "<caption>" cost($2) " this turn</caption>"
+    header()
+    print ""
+}
 
-        return row([
-            model.canonicalModel || name,
-            count(model.inputTokens),
-            count(model.outputTokens),
-            count(model.thinkingTokens),
-            count(model.cacheReadInputTokens),
-            count(model.cacheCreationInputTokens),
-            cost(model.costUSD),
-        ]);
-    });
+$1 == "model" {
+    model("td", $2, $3, $4, $5, $6, $7, $8)
+    models++
+    inputs += $3
+    outputs += $4
+    thoughts += $5
+    reads += $6
+    writes += $7
+    costs += $8
+}
 
-    if (names.length > 1) {
-        rows.push(row([
-            "total",
-            count(total.input),
-            count(total.output),
-            count(total.think),
-            count(total.read),
-            count(total.write),
-            cost(total.cost),
-        ], "th"));
+$1 == "models_end" {
+    if (models > 1) {
+        model("th", "total", inputs, outputs, thoughts, reads, writes, costs)
     }
 
-    return rows.join("");
+    print ""
+    print "</table>"
+    print "<table>"
 }
 
-function tools(transcript, since) {
-    const counts = new Map();
-
-    for (const line of transcript.split("\n")) {
-        if (line.length === 0) {
-            continue;
-        }
-
-        const record = JSON.parse(line);
-
-        if (record.type !== "assistant" || record.timestamp < since) {
-            continue;
-        }
-
-        const content = record.message && record.message.content;
-
-        for (const block of Array.isArray(content) ? content : []) {
-            if (block.type === "tool_use") {
-                counts.set(block.name, (counts.get(block.name) || 0) + 1);
-            }
-        }
+$1 == "session" {
+    if ($2 == "true") {
+        fact("session so far", cost($4) " over " count($3) " " \
+            ($3 == 1 ? "turn" : "turns"))
+    } else {
+        fact("session so far", cost($5))
     }
-
-    return [...counts.entries()]
-        .sort((left, right) => right[1] - left[1])
-        .map(([name, calls]) => `${name} ${calls}`)
-        .join(", ");
 }
 
-function ledger(path) {
-    if (!path || !fs.existsSync(path)) {
-        return null;
+$1 == "seconds" {
+    fact($2, sprintf("%.1fs", $3 / 1000))
+}
+
+$1 == "count" {
+    fact($2, count($3))
+}
+
+$1 == "text" {
+    fact($2, $3)
+}
+
+$1 == "subagents" {
+    if ($2 > 0) {
+        fact("subagents", count($2) " spawned, " count($3) " completed")
+    } else {
+        fact("subagents", "none")
     }
-
-    const turns = fs.readFileSync(path, "utf8")
-        .split("\n")
-        .filter((line) => line.length > 0);
-
-    return {
-        turns: turns.length,
-        cost: turns.reduce((total, line) =>
-            total + Number(line.split(/\s+/)[1] || 0), 0),
-    };
 }
 
-const [, , resultPath, transcriptPath, since, ledgerPath] = process.argv;
-
-if (!resultPath) {
-    process.stderr.write("usage: mail-agent-usage <result> <transcript> <since>\n");
-    process.exit(64);
+END {
+    print ""
+    print "</table>"
 }
-
-const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
-
-const transcript = transcriptPath && fs.existsSync(transcriptPath) ?
-    fs.readFileSync(transcriptPath, "utf8") : "";
-
-const subagents = result.subagent_stats || {};
-const calls = tools(transcript, since || "");
-
-const session = ledger(ledgerPath);
-
-const facts = [
-    ["session so far", session ?
-        `${cost(session.cost)} over ${count(session.turns)} ` +
-            `${session.turns === 1 ? "turn" : "turns"}` :
-        cost(result.total_cost_usd)],
-    ["wall clock", seconds(result.duration_ms)],
-    ["api time", seconds(result.duration_api_ms)],
-    ["assistant turns", count(result.num_turns)],
-    ["tool calls", calls || "none"],
-    ["subagents", subagents.spawned ?
-        `${count(subagents.spawned)} spawned, ${count(subagents.completed)} completed` :
-        "none"],
-    ["permission denials", count((result.permission_denials || []).length)],
-    ["session", result.session_id || ""],
-];
-
-process.stdout.write(`<!doctype html>
-<meta charset="utf-8">
-<title>Turn cost</title>
-<style>
-body { font: 14px/1.5 ui-monospace, monospace; margin: 1.5rem; color: #222; }
-table { border-collapse: collapse; margin-bottom: 1.5rem; }
-th, td { padding: .25rem .75rem; border-bottom: 1px solid #ddd; text-align: left; }
-th { font-weight: normal; color: #555; }
-td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
-caption { text-align: left; font-weight: bold; padding-bottom: .4rem; }
-</style>
-<table>
-<caption>${cost(result.total_cost_usd)} this turn</caption>
-${row(["model", "in", "out", "thinking", "cache read", "cache write", "cost"], "th")}
-${models(result.modelUsage)}
-</table>
-<table>
-${facts.map(([name, value]) => row([name, value])).join("")}
-</table>
-`);
+' "$stream"

@@ -27,6 +27,49 @@ load helper
     [[ "$output" == *'0 records, 0 tool calls'* ]]
 }
 
+@test "usage formats model totals, tools, and the session ledger" {
+    jq -n '{
+        session_id: "fixture-session",
+        total_cost_usd: 1.2012,
+        duration_ms: 1200,
+        duration_api_ms: 800,
+        num_turns: 2,
+        modelUsage: {
+            first: {
+                canonicalModel: "one",
+                inputTokens: 1234567,
+                outputTokens: 2,
+                thinkingTokens: 3,
+                cacheReadInputTokens: 4,
+                cacheCreationInputTokens: 5,
+                costUSD: 0.0012
+            },
+            second: {
+                inputTokens: 3,
+                outputTokens: 4,
+                thinkingTokens: 5,
+                cacheReadInputTokens: 6,
+                cacheCreationInputTokens: 7,
+                costUSD: 1.2
+            }
+        },
+        subagent_stats: {spawned: 2, completed: 1},
+        permission_denials: [{}, {}]
+    }' > "$case_root/result"
+    printf '\n2026-01-01T00:00:00Z 1.25\n' > "$case_root/ledger"
+
+    run invoke "$case_home/bin/mail-agent-usage" "$case_root/result" \
+        "$project_root/test/fixtures/claude.jsonl" "" "$case_root/ledger"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'<caption>$1.20 this turn</caption>'* ]]
+    [[ "$output" == *'<td>one</td><td class="n">1,234,567</td>'* ]]
+    [[ "$output" == *'<th>total</th><th class="n">1,234,570</th>'* ]]
+    [[ "$output" == *'$1.25 over 1 turn'* ]]
+    [[ "$output" == *'<td class="n">Bash 1</td>'* ]]
+    [[ "$output" == *'2 spawned, 1 completed'* ]]
+}
+
 @test "codex steps unwrap commands and summarize replies" {
     run invoke jq -r --arg work "/example/" -f "$project_root/config/steps-codex.jq" "$project_root/test/fixtures/codex.jsonl"
 

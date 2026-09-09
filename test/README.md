@@ -2,10 +2,10 @@
 
 Run `make test` for the offline Bats suite. Run `make test-shells` to execute
 shell programs, including nested invocations, under dash and Bash in POSIX
-mode. Run `make test-syntax` for shell, Perl, and JavaScript syntax checks.
-These targets do not install software or contact model services.
+mode. Run `make test-syntax` for shell and Perl syntax checks. These targets do
+not install software or contact model services.
 
-Install bats-core, mblaze, Git, jq, Node, Perl, pandoc, and the Linux utilities
+Install bats-core, mblaze, Git, jq, awk, Perl, pandoc, and the Linux utilities
 `flock` and `timeout`. The suite also uses standard filesystem and text tools
 with the GNU options already required by the application. The runner reports
 missing required dependencies before executing tests. Bash is a test
@@ -35,11 +35,11 @@ file and exit-status interface.
 
 The application provides three overrides, retaining its normal defaults:
 
-| Variable | Default | Purpose |
-|----|----|----|
-| `MAIL_AGENT_SENDMAIL` | `sendmail` | Executable receiving outgoing messages with `-t` |
-| `MAIL_AGENT_SYSTEMD_RUN` | `systemd-run` | Executable receiving worker scheduling arguments |
-| `MAIL_AGENT_OUTPUT_DIR` | `/tmp/mail-agent` | Existing writable directory for Codex final output |
+| Variable                 | Default           | Purpose                                            |
+|--------------------------|-------------------|----------------------------------------------------|
+| `MAIL_AGENT_SENDMAIL`    | `sendmail`        | Executable receiving outgoing messages with `-t`   |
+| `MAIL_AGENT_SYSTEMD_RUN` | `systemd-run`     | Executable receiving worker scheduling arguments   |
+| `MAIL_AGENT_OUTPUT_DIR`  | `/tmp/mail-agent` | Existing writable directory for Codex final output |
 
 Command overrides name one executable, without arguments. The output directory
 must be writable within the selected sandbox when using a real launcher.

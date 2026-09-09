@@ -73,7 +73,7 @@ notify:
 	@echo "  set new_mail_command = \"notify-send -a mutt 'New mail: %f' '%n new'\""
 
 check:
-	@for tool in postconf sendmail mhdr mshow mmime jq pandoc node w3m git \
+	@for tool in postconf sendmail mhdr mshow mmime jq pandoc awk w3m git \
 	    flock systemd-run landrun; do \
 	    command -v $$tool >/dev/null 2>&1 || echo "missing: $$tool"; \
 	done

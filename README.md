@@ -32,7 +32,7 @@ back to best effort, which is not a boundary).
 | mblaze                                              | reading and building the mail                            |
 | jq                                                  | routing, the step summaries, the cost tables             |
 | pandoc                                              | rewrapping replies and plans                             |
-| node                                                | the two renderers                                        |
+| awk                                                 | HTML and numeric formatting                              |
 | git                                                 | clones, `format-patch`, `git am`                         |
 | w3m                                                 | reading the rendered parts (reader side)                 |
 | mutt                                                | the reader side, and the keystroke that applies a series |
@@ -229,12 +229,12 @@ through pandoc into w3m by `~/.mailcap`, so a table arrives drawn as one.
 Commits do not ride along with it; they follow as their own messages, described
 above. What is attached is the record of the turn.
 
-| part             | what it is                                             |
-|------------------|--------------------------------------------------------|
-| `reasoning.html` | the turn’s thinking and every tool call                |
-| `steps.txt`      | one line per step of the turn                          |
-| `usage.html`     | what the turn cost: money for Claude, tokens for codex |
-| the plan’s name  | the plan itself, when a turn wrote one                 |
+| part             | what it is                                |
+|------------------|-------------------------------------------|
+| `reasoning.html` | the turn’s thinking and every tool call   |
+| `steps.txt`      | one line per step of the turn             |
+| `usage.html`     | what the turn cost, reported or estimated |
+| the plan’s name  | the plan itself, when a turn wrote one    |
 
 Both HTML parts render in the pager automatically. Tool calls appear in the
 notation of the tool: `> command` for a shell call, `-`/`+` lines for an edit,
