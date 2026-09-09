@@ -590,7 +590,7 @@ if [ -d "$HOME/mail/.agent/$driver/plans" ]; then
             name=$(basename "$plan")
 
             if ! pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns=79 \
-                    "$plan" > "$scratch/$name" 2>/dev/null; then
+                --reference-links "$plan" > "$scratch/$name" 2>/dev/null; then
                 cp "$plan" "$scratch/$name"
             fi
 
