@@ -31,6 +31,19 @@ age() {
 }
 
 state() {
+    if [ -e "$agent/streams/$1.json" ] || [ -L "$agent/streams/$1.json" ]; then
+        selection=$("$HOME/bin/mail-agent-stream" show "$1") || {
+            echo invalid
+            return
+        }
+        admission=$(printf "%s" "$selection" | jq -r .state)
+
+        if [ "$admission" != active ]; then
+            printf "%s\n" "$admission"
+            return
+        fi
+    fi
+
     if ! flock -n "$agent/lock/$1" true 2>/dev/null; then
         echo running
     elif [ -n "$(ls -A "$agent/queue/$1" 2>/dev/null)" ]; then

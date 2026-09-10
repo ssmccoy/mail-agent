@@ -110,7 +110,7 @@ Reply in the thread to continue work. Session identifiers in `Message-Id` and
 matching thread starts a new session. Project sessions use separate worktrees
 from one shared clone per source repository. New shared clones use group
 permissions and copy objects without hard links to the source. Each driver
-receives access only to its assigned project's Git store. Existing shared
+receives access only to its assigned project’s Git store. Existing shared
 clones require a separate permissions and hard-link migration before use by
 dynamic system users.
 
@@ -189,7 +189,7 @@ CLI execution. Arguments are passed without shell evaluation or word splitting.
 
 Claude uses `--tools`; pi uses `--tools` across built-in and extension tools.
 Their research defaults allow file reading, writing, editing, and searching,
-with Claude's web tools also enabled. Research omits shell and delegation
+with Claude’s web tools also enabled. Research omits shell and delegation
 tools. Claude disables inherited MCP configuration and user/project setting
 sources for research. Its research permission mode permits file operations,
 while Landlock restricts the writable paths.
@@ -207,6 +207,25 @@ installed CLI versions. The offline tests verify argument selection and actual
 file-server operations; qualification with each installed CLI is still
 required. Changing a tool profile does not expand Landlock filesystem
 permissions.
+
+### Runtime installation and migration preparation
+
+Drivers accept explicit paths for installed tools, runtime dependencies,
+configuration, credentials, and caches. Defaults preserve the home
+installation; see [runtime configuration]. The shared runtime library is
+installed in `~/lib/mail-agent` and must be upgraded with the scripts.
+
+Each stream records its backend outside the agent’s writable directories.
+Existing streams retain legacy execution, and forks inherit the parent’s
+backend. `mail-agent-stream pause SESSION` suspends admission without dropping
+queued mail; `resume` enables admission again.
+`mail-agent-migrate inspect SESSION` inventories a paused stream without
+invoking Git or reading credential contents. See the [migration procedure] for
+commands, preservation requirements, and rollback.
+
+Keep `~/.config/mail-agent/backend` set to `legacy`: the system backend and
+nftables integration are not implemented. Selecting an unavailable backend
+reports scheduling failure without executing the task locally.
 
 ### Effort
 
@@ -443,4 +462,6 @@ Landlock network rules. No nftables policy or dynamic system-user backend is
 installed by `make install`.
 
   [landrun]: https://github.com/Zouuup/landrun
+  [runtime configuration]: docs/runtime.md
+  [migration procedure]: docs/migration.md
   [the adoption document]: docs/isolation.md

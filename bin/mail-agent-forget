@@ -104,7 +104,7 @@ retire() {
 
     # A running thread is a refusal worth hearing even when quiet: the
     # sender asked for it to go and it did not.
-    if ! flock -n "$root/lock/$1" true 2>/dev/null; then
+    if ! "$HOME/bin/mail-agent-stream" retire "$1" > /dev/null; then
         echo "mail-agent-forget: $1 is running" >&2
         return
     fi
@@ -125,7 +125,7 @@ retire() {
 
     forget_sessions "$work" "$(driver_of "$(cat "$work/agent" 2>/dev/null)")"
 
-    rm -rf "$work" "$root/queue/$1" "$root/lock/$1" "$root/tasks/$1"
+    rm -rf "$work" "$root/queue/$1" "$root/tasks/$1"
 
     if [ "$quiet" = no ]; then
         echo "forgot $1"

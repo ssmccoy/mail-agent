@@ -69,3 +69,16 @@ prevention, phase request validation, and the research file-tool interface.
 Delivery failures can still advance queue or patch state; these task records do
 not provide transactional mail delivery. Real CLI tool availability and kernel
 confinement require deployment qualification.
+
+## Migration preparation
+
+Stream tests verify persistent backend selection, fork inheritance, paused
+admission, execution-lock contention, and retirement. Migration inspection
+tests use real worktrees, indexes, ignored/untracked files, symbolic links, and
+multiple links to an object. They verify that inspection neither invokes Git
+configuration nor reads shared credentials. Runtime tests relocate executables
+and configuration to paths containing spaces.
+
+These tests do not exercise DynamicUser directories, polkit authorization,
+nftables, state transfer, or a backend switch. Those components are not
+implemented yet.

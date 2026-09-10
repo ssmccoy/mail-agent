@@ -38,7 +38,17 @@ if [ -z "$task" ]; then
     exit 0
 fi
 
-if "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
+selection=$("$HOME/bin/mail-agent-stream" ensure "$session") || selection=""
+
+if [ "$(printf "%s" "$selection" | jq -r '.state // empty')" = paused ]; then
+    exit 0
+fi
+
+backend=$(printf "%s" "$selection" | jq -r '.backend // empty')
+
+# Only an installed backend may execute a selected stream. Never fall back.
+if [ "$(printf "%s" "$selection" | jq -r .state)" = active ] &&
+   [ "$backend" = legacy ] && "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
         --unit="mail-agent-$session-$(date +%s%N)" \
         flock --close "$root/lock/$session" "$HOME/bin/mail-agent-run" "$session"; then
     exit 0

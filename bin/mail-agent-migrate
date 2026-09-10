@@ -1,0 +1,182 @@
+#!/bin/sh
+# Inspect a paused legacy stream without executing Git or reading credentials.
+# Usage: mail-agent-migrate inspect <session>
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+if [ "$#" -ne 2 ] || [ "$1" != inspect ]; then
+    echo "usage: mail-agent-migrate inspect <session>" >&2
+    exit 64
+fi
+
+session=$2
+root="$HOME/mail/.agent"
+work="$root/work/$session"
+
+case "$session" in
+    ""|*[!A-Za-z0-9_-]*) exit 64 ;;
+esac
+
+[ "${#session}" -le 64 ] || exit 64
+
+# Do not interpret repository configuration, hooks, filters, or fsmonitor.
+# Find prints only types, link counts, and sizes; filenames cannot alter parsing.
+inventory() {
+    if [ -L "$1" ]; then
+        echo "unexpected symbolic link: $1" >&2
+        return 65
+    fi
+
+    if [ ! -e "$1" ]; then
+        printf '{"exists":false,"entries":0,"files":0,"symlinks":0,"special":0,"linked":0,"bytes":0}\n'
+        return
+    fi
+
+    [ -d "$1" ] || return 65
+    find -P "$1" -mindepth 1 -printf '%y %n %s\n' > "$scratch/inventory" || return 74
+    awk '
+        { entries++ }
+        $1 == "f" { files++; bytes += $3; if ($2 > 1) linked++ }
+        $1 == "l" { symlinks++ }
+        $1 != "f" && $1 != "d" && $1 != "l" { special++ }
+        END { printf "{\"exists\":true,\"entries\":%d,\"files\":%d,\"symlinks\":%d,\"special\":%d,\"linked\":%d,\"bytes\":%.0f}\n",
+            entries, files, symlinks, special, linked, bytes }
+    ' "$scratch/inventory"
+}
+
+metadata() {
+    for name in agent subject root project branch base mailed turns agent-session effort cost research; do
+        file="$work/$name"
+
+        if [ -L "$file" ]; then
+            echo "unexpected metadata symbolic link: $file" >&2
+            return 65
+        fi
+
+        if [ -e "$file" ]; then
+            [ -f "$file" ] || return 65
+            jq -cn --arg name "$name" --argjson bytes "$(stat -c %s -- "$file")" \
+                '{key:$name,value:{bytes:$bytes}}'
+        fi
+    done
+}
+
+registration_path() {
+    if [ ! -f "$1" ] || [ -L "$1" ] || [ "$(stat -c %s -- "$1")" -gt 4096 ]; then
+        return 65
+    fi
+
+    realpath -m -- "$(cat "$1")"
+}
+
+worktree_pointer() {
+    if [ ! -f "$work/repo/.git" ] || [ -L "$work/repo/.git" ]; then
+        echo false
+        return
+    fi
+
+    if [ "$(stat -c %s -- "$work/repo/.git")" -gt 4096 ]; then
+        echo false
+        return
+    fi
+
+    target=$(sed -n 's/^gitdir: //p' "$work/repo/.git")
+    canonical=$(realpath -e -- "$target" 2>/dev/null || true)
+
+    case "$canonical" in
+        "$1/worktrees/"*)
+            registered=$(registration_path "$canonical/gitdir") || {
+                echo false
+                return
+            }
+
+            if [ "$registered" = "$(realpath -e -- "$work/repo/.git")" ]; then
+                echo true
+            else
+                echo false
+            fi
+            ;;
+        *) echo false ;;
+    esac
+}
+
+storage() {
+    if [ ! -f "$work/project" ]; then
+        [ -f "$work/research" ] || return 65
+
+        printf '{"repository":null,"linked_objects":0,"alternates":false,"worktree_pointer":true}\n'
+        return
+    fi
+
+    [ "$(stat -c %s -- "$work/project")" -le 4096 ] || return 65
+    repo=$(cat "$work/project")
+
+    case "$repo" in
+        /*) ;;
+        *) return 65 ;;
+    esac
+
+    shared="$MAIL_AGENT_REPOSITORIES/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
+
+    [ ! -L "$shared" ] || return 65
+    inventory "$shared/objects" > "$scratch/objects" || return $?
+
+    alternates=false
+    if [ -e "$shared/objects/info/alternates" ] || [ -L "$shared/objects/info/alternates" ]; then
+        alternates=true
+    fi
+
+    pointer=$(worktree_pointer "$shared")
+
+    jq -cn --arg repository "$repo" --arg shared "$shared" \
+        --argjson alternates "$alternates" --argjson pointer "$pointer" \
+        --slurpfile objects "$scratch/objects" \
+        '{repository:$repository,shared:$shared,objects:$objects[0],
+          linked_objects:$objects[0].linked,alternates:$alternates,worktree_pointer:$pointer}'
+}
+
+# A paused record alone is insufficient if an older worker still has the lock.
+[ -d "$root/lock" ] || exit 66
+exec 9> "$root/lock/$session"
+flock -n 9 || exit 75
+
+selection=$("$MAIL_AGENT_BIN/mail-agent-stream" show "$session") || exit $?
+
+if [ "$(printf "%s" "$selection" | jq -r .state)" != paused ]; then
+    echo "pause the stream before migration inspection" >&2
+    exit 75
+fi
+
+[ -d "$work" ] && [ ! -L "$work" ] && [ -d "$work/repo" ] || exit 66
+
+umask 077
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/mail-agent-migrate.XXXXXXXX")
+
+trap 'rm -rf "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+metadata > "$scratch/metadata"
+inventory "$work/repo" > "$scratch/workspace"
+inventory "$work/harness" > "$scratch/history"
+inventory "$root/queue/$session" > "$scratch/queue"
+inventory "$root/tasks/$session" > "$scratch/tasks"
+storage > "$scratch/storage"
+
+jq -n --arg session "$session" --argjson selection "$selection" \
+    --slurpfile metadata "$scratch/metadata" \
+    --slurpfile workspace "$scratch/workspace" --slurpfile history "$scratch/history" \
+    --slurpfile queue "$scratch/queue" --slurpfile tasks "$scratch/tasks" \
+    --slurpfile storage "$scratch/storage" '
+    {schema:1,session:$session,backend:$selection.backend,state:$selection.state,
+     metadata:($metadata | from_entries),workspace:$workspace[0],history:$history[0],
+     queue:$queue[0],tasks:$tasks[0],storage:$storage[0],ready:false,
+     blockers:["system-backend-unavailable",
+        (if $storage[0].linked_objects > 0 then "shared-object-links" else empty end),
+        (if $storage[0].alternates then "git-alternates" else empty end),
+        (if $storage[0].worktree_pointer == false then "worktree-registration" else empty end),
+        (if ($storage[0].objects.exists // true) == false then "missing-object-store" else empty end),
+        (if ($workspace[0].special + $history[0].special) > 0 then "special-files" else empty end)]}
+'

@@ -32,6 +32,18 @@ if [ -z "$session" ]; then
     exit 64
 fi
 
+selection=$("$HOME/bin/mail-agent-stream" ensure "$session") || exit $?
+
+if [ "$(printf "%s" "$selection" | jq -r .state)" = paused ]; then
+    exit 0
+fi
+
+if [ "$(printf "%s" "$selection" | jq -r .state)" != active ] ||
+   [ "$(printf "%s" "$selection" | jq -r .backend)" != legacy ]; then
+    echo "the selected execution backend is not installed" >&2
+    exit 78
+fi
+
 # The subject names a project up to its first colon; the map turns that
 # into a repository. A reply or a forward puts its own word in front, so
 # strip those first, or the project is read as "re" or "fwd".
@@ -349,6 +361,8 @@ if [ -n "$fork" ]; then
     parent_commit=${fork#* }
     child=$(new_uuid)
     cwork="$root/work/$child"
+
+    "$HOME/bin/mail-agent-stream" fork "$session" "$child" > /dev/null || exit $?
 
     mkdir -p "$cwork"
     cp "$work/agent" "$cwork/"

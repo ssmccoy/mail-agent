@@ -48,8 +48,16 @@ elif [ -n "$(ls -A "$agent/queue/$session" 2>/dev/null)" ]; then
     state=queued
 fi
 
+selection=$("$HOME/bin/mail-agent-stream" show "$session") || exit $?
+admission=$(printf "%s" "$selection" | jq -r .state)
+
+if [ "$admission" != active ]; then
+    state=$admission
+fi
+
 printf "session   %s\n" "$session"
 printf "subject   %s\n" "$(cat "$work/subject" 2>/dev/null)"
+printf "backend   %s\n" "$(printf "%s" "$selection" | jq -r .backend)"
 waiting=$(ls -A "$agent/queue/$session" 2>/dev/null | wc -l)
 
 # The message being answered stays queued until its reply is sent.

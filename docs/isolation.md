@@ -8,7 +8,7 @@ switch a failed isolated task to the legacy executor.
 
 Investigate, plan, and research prohibit writes to the checkout and shared Git
 metadata. Every harness and mode has a configurable tool profile. Research
-omits shell tools and permits private working files plus the stream's CLI
+omits shell tools and permits private working files plus the stream’s CLI
 history and runtime metadata. Credentials remain shared with interactive login;
 research cannot refresh the shared credential files.
 
@@ -18,6 +18,14 @@ contains only its schema, task identity, driver, mode, model, and effort. The
 phase writes an outcome with its task identity and exit status. The dispatcher
 records tasks outside agent-writable directories and never executes a recorded
 task again. There is no automatic model replay or checkpoint recovery protocol.
+
+Runtime paths are now explicit; see [runtime configuration]. Backend records
+preserve each stream’s selection, forks inherit that selection, and admission
+can be paused while incoming mail remains queued. The [migration procedure]
+describes the implemented inspection commands, retained state, required
+transfer validation, rollback, and the remaining system-backend work. No
+system-service backend or nftables policy is installed by these preparatory
+changes.
 
 ## System-service backend
 
@@ -109,3 +117,6 @@ Retirement disables dispatch; deletion of private system-managed state is an
 administrative retention operation. Start-only authorization does not grant
 cancellation or deletion. Keep the legacy executor until streams have migrated
 or retired.
+
+  [runtime configuration]: runtime.md
+  [migration procedure]: migration.md

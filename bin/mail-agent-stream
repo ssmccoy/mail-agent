@@ -1,0 +1,146 @@
+#!/bin/sh
+# Persist backend selection and suspend admission without discarding queued mail.
+# Usage: mail-agent-stream <show|ensure|pause|resume|retire|fork> <session> [child]
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: mail-agent-stream <show|ensure|pause|resume|retire|fork> <session> [child]" >&2
+    exit 64
+fi
+
+operation=$1
+session=$2
+child=${3:-}
+root="$HOME/mail/.agent"
+
+case "$operation:$#" in
+    show:2|ensure:2|pause:2|resume:2|retire:2|fork:3) ;;
+    *) exit 64 ;;
+esac
+
+for identifier in "$session" "${child:-$session}"; do
+    case "$identifier" in
+        ""|*[!A-Za-z0-9_-]*) exit 64 ;;
+    esac
+
+    [ "${#identifier}" -le 64 ] || exit 64
+done
+
+record="$root/streams/$session.json"
+
+read_record() {
+    if [ ! -f "$1" ] || [ -L "$1" ] || [ "$(stat -c %s -- "$1")" -gt 4096 ]; then
+        echo "missing or invalid stream record: $1" >&2
+        return 78
+    fi
+
+    jq -ce '
+        select(.schema == 1 and (.backend | IN("legacy","system")) and
+            (.state | IN("active","paused","retired")) and
+            (keys - ["schema","backend","state","parent"] | length == 0) and
+            (if has("parent") then
+                (.parent | type == "string" and test("^[A-Za-z0-9_-]{1,64}$"))
+             else true end))
+    ' "$1" || return 78
+}
+
+write_record() {
+    replacement=$(mktemp "$root/streams/.record.XXXXXXXX")
+
+    printf "%s\n" "$1" > "$replacement"
+    sync "$replacement"
+    mv "$replacement" "$record"
+    sync "$root/streams" "$root"
+}
+
+ensure_record() {
+    if [ -e "$record" ] || [ -L "$record" ]; then
+        read_record "$record"
+        return
+    fi
+
+    backend=legacy
+
+    if [ ! -d "$root/work/$session" ] && [ -f "$MAIL_AGENT_CONFIG/backend" ]; then
+        backend=$(cat "$MAIL_AGENT_CONFIG/backend")
+    fi
+
+    case "$backend" in
+        legacy|system) ;;
+        *) echo "unknown execution backend: $backend" >&2; return 78 ;;
+    esac
+
+    value=$(jq -cn --arg backend "$backend" '{schema:1,backend:$backend,state:"active"}')
+
+    write_record "$value"
+    printf "%s\n" "$value"
+}
+
+if [ "$operation" = show ]; then
+    if [ ! -e "$record" ] && [ ! -L "$record" ] && [ -d "$root/work/$session" ]; then
+        printf '{"schema":1,"backend":"legacy","state":"active"}\n'
+        exit 0
+    fi
+
+    read_record "$record"
+    exit $?
+fi
+
+umask 077
+mkdir -p "$root/streams" "$root/lock"
+
+# Admission changes require an idle stream. A worker scheduled before pause
+# must check the record after acquiring this same execution lock.
+case "$operation" in
+    pause|resume|retire)
+        exec 9> "$root/lock/$session"
+        flock -n 9 || exit 75
+        ;;
+esac
+
+exec 8> "$root/streams/.lock"
+flock 8
+
+value=$(ensure_record) || exit $?
+
+case "$operation" in
+    pause|resume|retire)
+        if [ "$(printf "%s" "$value" | jq -r .state)" = retired ] &&
+           [ "$operation" != retire ]; then
+            echo "retired streams cannot be resumed" >&2
+            exit 78
+        fi
+
+        state=paused
+
+        if [ "$operation" = retire ]; then
+            state=retired
+        fi
+
+        if [ "$operation" = resume ]; then
+            state=active
+        fi
+
+        value=$(printf "%s" "$value" | jq -c --arg state "$state" '.state=$state')
+        write_record "$value"
+        ;;
+    fork)
+        record="$root/streams/$child.json"
+        backend=$(printf "%s" "$value" | jq -r .backend)
+
+        if [ -e "$record" ] || [ -L "$record" ]; then
+            value=$(read_record "$record") || exit $?
+            printf "%s" "$value" | jq -e --arg parent "$session" --arg backend "$backend" \
+                '.parent == $parent and .backend == $backend' > /dev/null || exit 78
+        else
+            value=$(jq -cn --arg parent "$session" --arg backend "$backend" \
+                '{schema:1,backend:$backend,state:"active",parent:$parent}')
+            write_record "$value"
+        fi
+        ;;
+esac
+
+printf "%s\n" "$value"
