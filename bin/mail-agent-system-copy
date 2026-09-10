@@ -1,0 +1,33 @@
+#!/bin/sh
+# Copy an inactive bounded tree without following symbolic links.
+# Usage: mail-agent-system-copy <source-directory> <new-destination> <byte-limit>
+
+set -eu
+
+[ "$#" -eq 3 ] || exit 64
+[ -d "$1" ] && [ ! -L "$1" ] && [ ! -e "$2" ] && [ ! -L "$2" ] || exit 65
+
+case "$3" in ""|*[!0-9]*) exit 64 ;; esac
+
+source=$1
+destination=$2
+limit=$3
+
+# No source writer may remain active. Both callers enforce that ordering.
+# Inspect only type, size and links; pathname bytes cannot affect the parser.
+statistics=$(mktemp "${TMPDIR:-/tmp}/mail-agent-copy.XXXXXXXX")
+
+trap 'rm -f "$statistics"' EXIT
+
+find -P "$source" -printf '%y %s\n' > "$statistics"
+awk -v limit="$limit" '
+    $1 != "d" && $1 != "f" && $1 != "l" { bad = 1 }
+    $1 == "f" { bytes += $2 }
+    { entries++ }
+    END { exit bad || bytes > limit || entries > 1000000 }
+' "$statistics" || {
+    echo "tree contains special files or exceeds transfer limits" >&2
+    exit 65
+}
+
+cp -a --no-preserve=ownership --reflink=auto -- "$source" "$destination"

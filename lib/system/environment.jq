@@ -1,0 +1,25 @@
+.policies[$id] as $p |
+{
+ MAIL_AGENT_LIB:"/usr/local/lib/mail-agent",
+ MAIL_AGENT_BIN:"/usr/local/libexec/mail-agent",
+ MAIL_AGENT_CONFIG:"/etc/mail-agent/agent",
+ MAIL_AGENT_PROFILES:"/etc/mail-agent/profiles",
+ MAIL_AGENT_LANDLOCK:"/usr/local/bin/landlock",
+ MAIL_AGENT_EXECUTABLE:$p.runtime.binary,
+ MAIL_AGENT_PACKAGES:$p.runtime.packages,
+ MAIL_AGENT_SHARED_STATE:$p.runtime.configuration,
+ MAIL_AGENT_AUTH:$p.runtime.auth,
+ MAIL_AGENT_TOOLCHAIN:$p.runtime.toolchain,
+ MAIL_AGENT_TOOLCHAIN_CONFIG:$p.runtime.toolchain_config,
+ MAIL_AGENT_EXEC_PATH:($p.runtime.toolchain + "/shims:" + $p.runtime.toolchain + "/bin:/usr/local/bin:/usr/bin"),
+ MAIL_AGENT_GO_CACHE:$p.runtime.cache,
+ MAIL_AGENT_GIT_CONFIG:$p.runtime.git_config,
+ MAIL_AGENT_INSTRUCTIONS:$p.runtime.instructions,
+ MAIL_AGENT_SYSTEM_PROJECT:$p.project,
+ MAIL_AGENT_SYSTEM_SHARED:$p.shared,
+ MAIL_AGENT_SYSTEM_DRIVER:$p.driver,
+ MAIL_AGENT_SYSTEM_MODE:$p.mode,
+ GIT_CONFIG_NOSYSTEM:"1", GIT_CONFIG_GLOBAL:"/dev/null", GIT_TERMINAL_PROMPT:"0",
+ GIT_AUTHOR_NAME:"Mail Agent", GIT_AUTHOR_EMAIL:"mail-agent@localhost",
+ GIT_COMMITTER_NAME:"Mail Agent", GIT_COMMITTER_EMAIL:"mail-agent@localhost"
+} | to_entries[] | .key + "=" + (.value | @json)

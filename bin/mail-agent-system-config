@@ -1,0 +1,56 @@
+#!/bin/sh
+# Render administrator-reviewed service and firewall policy without installing it.
+# Usage: mail-agent-system-config <configuration.json> <new-directory>
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+if [ "$#" -ne 2 ] || [ ! -f "$1" ] || [ -e "$2" ]; then
+    echo "usage: mail-agent-system-config <configuration.json> <new-directory>" >&2
+    exit 64
+fi
+
+configuration=$1
+destination=$2
+library="$MAIL_AGENT_LIB/system"
+
+jq -e -f "$library/config.jq" "$configuration" > /dev/null || exit 65
+
+umask 077
+mkdir -p "$destination"
+cp "$configuration" "$destination/system.json"
+cp "$library/phase.cfg" "$destination/phase.cfg"
+jq -r -f "$library/firewall.jq" "$configuration" > "$destination/firewall.nft"
+
+for policy in $(jq -r '.policies | keys[]' "$configuration"); do
+    jq -r --arg id "$policy" -f "$library/unit.jq" "$configuration" \
+        > "$destination/mail-agent-$policy@.service"
+    jq -r --arg id "$policy" -f "$library/environment.jq" "$configuration" \
+        > "$destination/$policy.env"
+    printf '[Unit]\nDescription=Mail-agent policy %s\n[Slice]\nCPUAccounting=yes\n' "$policy" \
+        > "$destination/mailagent-$policy.slice"
+done
+
+printf '[Unit]\nDescription=Mail-agent workloads\n[Slice]\nCPUAccounting=yes\n' \
+    > "$destination/mailagent.slice"
+
+jq -r '
+    "polkit.addRule(function(action, subject) {\n" +
+    "  if (action.id == \"org.freedesktop.systemd1.manage-units\" &&\n" +
+    "      subject.user == " + (.dispatcher | @json) + " &&\n" +
+    "      action.lookup(\"verb\") == \"start\" &&\n" +
+    "      /^mail-agent-(" + (.policies | keys | join("|")) +
+    ")@[A-Za-z0-9_-]{1,64}\\.service$/.test(action.lookup(\"unit\") || \"\")) {\n" +
+    "    return polkit.Result.YES;\n  }\n});"
+' "$configuration" > "$destination/50-mail-agent.rules"
+
+{
+    printf '[Unit]\nDescription=Mail-agent nftables policy\nRequires=mailagent.slice '
+    jq -r '.policies | keys[] | "mailagent-" + . + ".slice"' "$configuration" | tr '\n' ' '
+    printf '\nAfter=mailagent.slice '
+    jq -r '.policies | keys[] | "mailagent-" + . + ".slice"' "$configuration" | tr '\n' ' '
+    printf '\n[Service]\nType=oneshot\nRemainAfterExit=yes\n'
+    printf 'ExecStart=/usr/local/libexec/mail-agent/mail-agent-firewall start\n'
+    printf 'ExecStop=/usr/local/libexec/mail-agent/mail-agent-firewall stop\n'
+} > "$destination/mail-agent-firewall.service"

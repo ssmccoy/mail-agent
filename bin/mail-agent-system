@@ -1,0 +1,231 @@
+#!/bin/sh
+# Submit a fixed phase operation through the administrator-installed backend.
+# Usage: mail-agent-system <prepare|branch|turn|history|inspect|import|snapshot> <work> <out> [branch]
+#        mail-agent-system wait <session>
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+configuration=${MAIL_AGENT_SYSTEM_CONFIG:-/etc/mail-agent/system.json}
+submissions=${MAIL_AGENT_SYSTEM_SUBMISSIONS:-/var/lib/mail-agent-submissions}
+results=${MAIL_AGENT_SYSTEM_RESULTS:-/var/lib/mail-agent-results}
+manager=${MAIL_AGENT_SYSTEMCTL:-/usr/bin/systemctl}
+
+[ "$#" -ge 2 ] || exit 64
+jq -e -f "$MAIL_AGENT_LIB/system/config.jq" "$configuration" > /dev/null || exit 78
+
+wait_session() {
+    for policy in $(jq -r '.policies | keys[]' "$configuration"); do
+        waited_unit="mail-agent-$policy@$1.service"
+        while :; do
+            state=$("$manager" --system show --value --property=ActiveState "$waited_unit") || return 78
+            case "$state" in
+                inactive|failed) break ;;
+                active|activating|deactivating|reloading) sleep 1 ;;
+                *) echo "unknown service state: $state" >&2; return 78 ;;
+            esac
+        done
+    done
+}
+
+busy_session() {
+    for policy in $(jq -r '.policies | keys[]' "$configuration"); do
+        state=$("$manager" --system show --value --property=ActiveState "mail-agent-$policy@$1.service") || return 78
+        case "$state" in
+            inactive|failed) ;;
+            active|activating|deactivating|reloading) return 0 ;;
+            *) return 78 ;;
+        esac
+    done
+    return 1
+}
+
+regular() {
+    [ -f "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %s -- "$1")" -le "$2" ]
+}
+
+copy_file() {
+    if [ ! -e "$source/$1" ] && [ ! -L "$source/$1" ]; then
+        return
+    fi
+    regular "$source/$1" "$2" || return 65
+    cp --remove-destination -- "$source/$1" "$out/$1"
+}
+
+copy_directory() {
+    [ -d "$source/$1" ] || return 0
+    if [ "$1" != checkout ]; then
+        links=$(find -P "$source/$1" -type l -print -quit) || return 65
+        [ -z "$links" ] || return 65
+    fi
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$source/$1" "$out/${3:-$1}" "$2"
+}
+
+copy_result_files() {
+    for name in cost result head base branch agent-session uncommitted commits; do
+        copy_file "$name" 1048576 || return $?
+    done
+    for name in reply.md steps.txt usage.html reasoning.html stderr; do
+        copy_file "$name" 16777216 || return $?
+    done
+    copy_file events.jsonl 67108864 || return $?
+    copy_file outcome.json 4096 || return $?
+}
+
+copy_result_directories() {
+    copy_directory patches 268435456 || return $?
+    copy_directory plans 268435456 plans-export || return $?
+    case "$action" in
+        history|snapshot) copy_directory history 1073741824 || return $? ;;
+    esac
+    if [ "$action" = snapshot ]; then
+        copy_file index 1073741824 || return $?
+        copy_directory checkout 1099511627776 || return $?
+    fi
+}
+
+validate_result_ids() {
+    for name in head base; do
+        if [ -f "$out/$name" ]; then
+            jq -Rse 'test("^([0-9a-f]{40}|[0-9a-f]{64})\\n$")' "$out/$name" > /dev/null || return 65
+        fi
+    done
+    if [ -f "$out/agent-session" ]; then
+        jq -Rse 'test("^[A-Za-z0-9_-]{1,128}\\n$")' "$out/agent-session" > /dev/null || return 65
+    fi
+}
+
+import_result() {
+    source="$results/$session/$request_id"
+    [ -d "$source" ] && [ ! -L "$source" ] || return 65
+    regular "$source/outcome.json" 4096 || return 75
+    jq -se 'length == 1' "$source/outcome.json" > /dev/null || return 65
+    jq -e --arg request "$request_id" --arg task "$task" '
+        keys == ["invocation","request","schema","status","task"] and
+        .schema == 1 and .request == $request and .task == $task and
+        (.invocation | type == "string" and test("^[a-f0-9]{32}$")) and
+        (.status | type == "number" and floor == . and . >= 0 and . <= 255)
+    ' "$source/outcome.json" > /dev/null || return 65
+
+    copy_result_files || return $?
+    copy_result_directories || return $?
+    validate_result_ids || return $?
+    return "$(jq -r .status "$out/outcome.json")"
+}
+
+if [ "$1" = wait ] || [ "$1" = busy ]; then
+    [ "$#" -eq 2 ] || exit 64
+    printf '%s\n' "$2" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+    if [ "$1" = busy ]; then
+        busy_session "$2"
+    else
+        wait_session "$2"
+    fi
+    exit $?
+fi
+
+[ "$#" -ge 3 ] && [ "$#" -le 4 ] && [ -d "$2" ] && [ -d "$3" ] || exit 64
+
+action=$1
+work=$2
+out=$3
+branch=${4:-}
+session=$(basename "$work")
+root="$HOME/mail/.agent/system/$session"
+
+case "$action" in prepare|branch|turn|history|inspect|import|snapshot) ;; *) exit 64 ;; esac
+printf '%s\n' "$session" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+
+project=$(cat "$work/project" 2>/dev/null || true)
+alias=$(cat "$work/agent" 2>/dev/null || true)
+driver=${MAIL_AGENT_DRIVER:-$(awk -v alias="$alias" '$1 == alias { print $2; exit }' "$MAIL_AGENT_CONFIG/agents")}
+mode=execute
+model=-
+effort=""
+task="administrative"
+base=$(cat "$work/mailed" 2>/dev/null || cat "$work/base" 2>/dev/null || true)
+agent_session=$(cat "$work/agent-session" 2>/dev/null || true)
+
+if [ -z "$project" ]; then
+    mode=research
+fi
+if [ "$action" = prepare ] || [ "$action" = import ]; then
+    base=${MAIL_AGENT_SYSTEM_BASE:-$(cat "$work/base" 2>/dev/null || true)}
+fi
+if [ "$action" = turn ]; then
+    regular "$out/request.json" 65536 || exit 65
+    mode=$(jq -r .mode "$out/request.json")
+    model=$(jq -r .model "$out/request.json")
+    effort=$(jq -r .effort "$out/request.json")
+    task=$(jq -r .task "$out/request.json")
+fi
+
+policy=$(jq -er --arg project "$project" --arg driver "$driver" --arg mode "$mode" '
+    .policies | to_entries | map(select(.value.project == $project and .value.driver == $driver and .value.mode == $mode)) |
+    if length == 1 then .[0].key else error("no installed policy for this project, harness, and mode") end
+' "$configuration") || exit 78
+unit="mail-agent-$policy@$session.service"
+
+umask 077
+mkdir -p "$root"
+exec 8> "$root/lock"
+flock 8
+wait_session "$session"
+
+request_id=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+publication="$submissions/$session"
+input="$publication/$request_id"
+
+# The installation assigns this parent to the dispatcher and submission group.
+umask 0027
+mkdir -p "$input"
+
+for name in prompt; do
+    if [ -f "$out/$name" ]; then
+        cp -- "$out/$name" "$input/$name"
+        chmod 0640 "$input/$name"
+    fi
+done
+for directory in attachments checkout history; do
+    if [ -d "$out/$directory" ]; then
+        "$MAIL_AGENT_BIN/mail-agent-system-copy" "$out/$directory" "$input/$directory" 1099511627776
+        chmod -R g+rX,o-rwx "$input/$directory"
+    fi
+done
+if [ -f "$out/index" ]; then
+    cp "$out/index" "$input/index"
+    chmod 0640 "$input/index"
+fi
+if [ -d "$work/import-history" ] && [ ! -e "$input/history" ]; then
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$work/import-history" "$input/history" 1073741824
+    chmod -R g+rX,o-rwx "$input/history"
+fi
+
+jq -n --arg request "$request_id" --arg task "$task" --arg action "$action" \
+    --arg driver "$driver" --arg mode "$mode" --arg model "$model" --arg effort "$effort" \
+    --arg branch "$branch" --arg base "$base" --arg agent_session "$agent_session" \
+    '{schema:1,request:$request,task:$task,action:$action,driver:$driver,mode:$mode,
+      model:$model,effort:$effort,branch:$branch,base:$base,agent_session:$agent_session}' \
+    > "$publication/request.json.new"
+jq -e -f "$MAIL_AGENT_LIB/system/request.jq" "$publication/request.json.new" > /dev/null || exit 65
+sync -f "$input"
+sync "$publication/request.json.new" "$input" "$publication"
+mv "$publication/request.json.new" "$publication/request.json"
+sync "$publication"
+
+umask 077
+jq -n --arg request "$request_id" --arg task "$task" --arg action "$action" --arg unit "$unit" \
+    '{request:$request,task:$task,action:$action,unit:$unit}' > "$root/current.json.new"
+sync "$root/current.json.new"
+mv "$root/current.json.new" "$root/current.json"
+sync "$root"
+
+status=0
+# Close the controller lock in systemctl; only this process owns serialization.
+"$manager" --system --no-ask-password --wait start "$unit" 8>&- || status=$?
+if import_result; then
+    [ "$status" -eq 0 ] || exit 75
+else
+    exit $?
+fi

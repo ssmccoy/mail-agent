@@ -48,7 +48,7 @@ if [ "$driver" = pi ] && [ -d "$MAIL_AGENT_SHARED_STATE/extensions" ]; then
 fi
 
 if [ -n "$repo" ]; then
-    objects="$MAIL_AGENT_REPOSITORIES/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
+    objects=${MAIL_AGENT_SYSTEM_SHARED:-"$MAIL_AGENT_REPOSITORIES/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"}
 
     if [ -L "$objects" ]; then
         echo "shared Git storage must not be a symlink" >&2

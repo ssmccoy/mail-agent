@@ -19,6 +19,14 @@ export MAIL_AGENT_LIB MAIL_AGENT_BIN MAIL_AGENT_CONFIG MAIL_AGENT_PROFILES MAIL_
 export MAIL_AGENT_REPOSITORIES MAIL_AGENT_TOOLCHAIN MAIL_AGENT_TOOLCHAIN_CONFIG
 export MAIL_AGENT_EXEC_PATH MAIL_AGENT_GO_CACHE MAIL_AGENT_GIT_CONFIG MAIL_AGENT_INSTRUCTIONS
 
+# Keep trusted helpers independent of project/toolchain command lookup. The
+# inner profiles pass MAIL_AGENT_EXEC_PATH to the workload after confinement.
+if [ -n "${MAIL_AGENT_SYSTEM_SHARED:-}" ]; then
+    PATH=/usr/local/bin:/usr/bin:/bin
+
+    export PATH
+fi
+
 mail_agent_runtime() {
     case "$1" in
         claude)

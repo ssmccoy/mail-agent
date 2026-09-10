@@ -1,0 +1,65 @@
+#!/bin/sh
+# Load the fixed nftables policy only while isolated services are stopped.
+# Invoke through mail-agent-firewall.service, never as a workload command.
+
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+export PATH
+
+[ "$(id -u)" -eq 0 ] || exit 77
+[ "$#" -eq 1 ] || exit 64
+
+configuration=/etc/mail-agent/system.json
+runtime=/run/mail-agent-firewall
+library=/usr/local/lib/mail-agent/system
+
+case "$1" in
+    start|stop) ;;
+    *) exit 64 ;;
+esac
+
+active=$(systemctl --system --no-legend --plain list-units \
+    --state=running,start-pre,start,start-post,stop,stop-sigterm,stop-sigkill,stop-post,final-sigterm,final-sigkill \
+    'mail-agent-*@*.service') || exit 78
+if [ -n "$active" ]; then
+    echo "stop isolated workloads before replacing firewall policy" >&2
+    exit 75
+fi
+
+install -d -m 0700 "$runtime"
+
+if [ "$1" = stop ]; then
+    nft delete table inet mail_agent
+    rm -f "$runtime/reference.json" "$runtime/cgroups"
+    exit 0
+fi
+
+jq -e -f "$library/config.jq" "$configuration" > /dev/null
+
+# Resolve the dedicated slice identities before compiling cgroup expressions.
+: > "$runtime/cgroups.new"
+for slice in mailagent.slice $(jq -r '.policies | keys[] | "mailagent-" + . + ".slice"' "$configuration"); do
+    group=$(systemctl --system show --value --property=ControlGroup "$slice")
+
+    case "$group" in
+        /mailagent.slice|/mailagent.slice/mailagent-*.slice) ;;
+        *) echo "unexpected workload cgroup: $group" >&2; exit 78 ;;
+    esac
+
+    printf '%s %s\n' "$(stat -c %i -- "/sys/fs/cgroup$group")" "$group" >> "$runtime/cgroups.new"
+done
+
+: > "$runtime/load.nft"
+if nft list table inet mail_agent > /dev/null 2>&1; then
+    printf 'delete table inet mail_agent\n' >> "$runtime/load.nft"
+fi
+
+cat /etc/mail-agent/firewall.nft >> "$runtime/load.nft"
+nft --check --file "$runtime/load.nft"
+nft --file "$runtime/load.nft"
+nft --json --stateless list table inet mail_agent > "$runtime/list.json"
+jq -S -f "$library/nft-normalize.jq" "$runtime/list.json" > "$runtime/reference.json.new"
+mv "$runtime/cgroups.new" "$runtime/cgroups"
+mv "$runtime/reference.json.new" "$runtime/reference.json"
+sync "$runtime/reference.json" "$runtime/cgroups" "$runtime"

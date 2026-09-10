@@ -1,0 +1,36 @@
+#!/bin/sh
+# Git always executes inside a narrower domain, without control/result access.
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+[ "$#" -ge 1 ] || exit 64
+
+access=--ro
+repo_access=--rox
+
+if [ "${MAIL_AGENT_SYSTEM_GIT_ACCESS:-read}" = write ]; then
+    access=--rwx
+    repo_access=--rwx
+fi
+
+set -- /usr/bin/git -c "safe.directory=$MAIL_AGENT_SYSTEM_SHARED" -c "safe.directory=$MAIL_AGENT_SYSTEM_REPO" -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+    -c credential.helper= -c protocol.allow=never -c protocol.file.allow=always "$@"
+
+# The phase-specific directory contains command output only, never completion
+# records. Project configuration cannot select executable paths in this wrapper.
+set -- --unrestricted-network --rox /usr --rox /bin --rox /lib \
+    --ro /etc/ssl --ro /etc/hosts --ro /etc/resolv.conf --ro /etc/ld.so.cache \
+    --rw /dev/null --rw /dev/urandom --ro /proc \
+    "$repo_access" "$MAIL_AGENT_SYSTEM_REPO" "$access" "$MAIL_AGENT_SYSTEM_SHARED" \
+    --rw "$MAIL_AGENT_SYSTEM_GIT_TMP" \
+    --env GIT_CONFIG_NOSYSTEM --env GIT_CONFIG_GLOBAL --env GIT_TERMINAL_PROMPT \
+    --env GIT_AUTHOR_NAME --env GIT_AUTHOR_EMAIL --env GIT_COMMITTER_NAME --env GIT_COMMITTER_EMAIL \
+    --env GIT_OPTIONAL_LOCKS=0 --env PATH=/usr/bin:/bin -- "$@"
+
+if [ -n "$MAIL_AGENT_SYSTEM_PROJECT" ]; then
+    set -- --ro "$MAIL_AGENT_SYSTEM_PROJECT" "$@"
+fi
+
+exec /usr/local/bin/landrun "$@"

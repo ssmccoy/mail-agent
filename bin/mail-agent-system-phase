@@ -1,0 +1,316 @@
+#!/bin/sh
+# Fixed phase protocol. This program runs only inside the outer Landlock domain.
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+session=$MAIL_AGENT_SYSTEM_SESSION
+stage=$MAIL_AGENT_SYSTEM_STAGE
+work="$STATE_DIRECTORY/work"
+control="$STATE_DIRECTORY/control/$INVOCATION_ID"
+output="$control/output"
+request="$control/request.json"
+
+case "$stage" in run|export) ;; *) exit 64 ;; esac
+printf '%s\n' "$INVOCATION_ID" | grep -Eq '^[a-f0-9]{32}$' || exit 65
+
+regular() {
+    [ -f "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %s -- "$1")" -le "$2" ]
+}
+
+validate_request() {
+    regular "$1" 65536 || return 65
+    jq -se 'length == 1' "$1" > /dev/null || return 65
+    jq -e -f "$MAIL_AGENT_LIB/system/request.jq" "$1" > /dev/null || return 65
+    jq -e --arg driver "$MAIL_AGENT_SYSTEM_DRIVER" --arg mode "$MAIL_AGENT_SYSTEM_MODE" \
+        '.driver == $driver and .mode == $mode' "$1" > /dev/null || return 65
+}
+
+safe_history() {
+    [ ! -L "$work/harness" ] || return 65
+    [ -d "$work/harness" ] || return 0
+    find -P "$work/harness" -type l -print > "$control/links" || return 65
+
+    while IFS= read -r link; do
+        case "$link" in
+            "$work/harness/$driver/auth.json"|"$work/harness/$driver/.credentials.json")
+                [ "$(readlink "$link")" = "$MAIL_AGENT_AUTH" ] || return 65 ;;
+            "$work/harness/$driver/extensions")
+                [ "$(readlink "$link")" = "$MAIL_AGENT_SHARED_STATE/extensions" ] || return 65 ;;
+            *) echo "unexpected link in harness state" >&2; return 65 ;;
+        esac
+    done < "$control/links"
+}
+
+git_run() {
+    "$MAIL_AGENT_BIN/mail-agent-system-git" "$@"
+}
+
+repository_prepare() {
+    mkdir -p "$work/repo"
+
+    if [ -z "$MAIL_AGENT_SYSTEM_PROJECT" ]; then
+        : > "$work/research"
+        return
+    fi
+
+    printf '%s\n' "$MAIL_AGENT_SYSTEM_PROJECT" > "$work/project"
+    [ -d "$MAIL_AGENT_SYSTEM_SHARED/objects" ] || {
+        echo "provision the shared bare repository before starting this stream" >&2
+        return 78
+    }
+
+    if [ -f "$work/repo/.git" ]; then
+        return
+    fi
+
+    base=$(jq -r .base "$request")
+    branch=$(jq -r .branch "$request")
+
+    if [ -z "$base" ] || [ "$base" = - ]; then
+        git_run -C "$MAIL_AGENT_SYSTEM_SHARED" fetch --quiet --no-tags "$MAIL_AGENT_SYSTEM_PROJECT" \
+            '+refs/heads/*:refs/remotes/source/*' '+refs/remotes/origin/*:refs/remotes/upstream/*'
+        if [ -z "$branch" ]; then
+            branch=$(git_run -C "$MAIL_AGENT_SYSTEM_PROJECT" symbolic-ref --short HEAD)
+        fi
+        git_run check-ref-format --branch "$branch" > /dev/null
+        base=$(git_run -C "$MAIL_AGENT_SYSTEM_SHARED" rev-parse --verify "refs/remotes/source/$branch" 2>/dev/null ||
+            git_run -C "$MAIL_AGENT_SYSTEM_SHARED" rev-parse --verify "refs/remotes/upstream/$branch")
+    fi
+
+    git_run -C "$MAIL_AGENT_SYSTEM_SHARED" worktree add --quiet -b "isolated/$session" "$work/repo" "$base"
+    printf '%s\n' "$base" > "$work/base"
+    printf '%s\n' "$branch" > "$work/branch"
+}
+
+repository_branch() {
+    branch=$(jq -r .branch "$request")
+    [ -n "$branch" ] || return 64
+    git_run check-ref-format --branch "$branch" > /dev/null
+    git_run -C "$MAIL_AGENT_SYSTEM_SHARED" fetch --quiet --no-tags "$MAIL_AGENT_SYSTEM_PROJECT" \
+        '+refs/heads/*:refs/remotes/source/*' '+refs/remotes/origin/*:refs/remotes/upstream/*'
+    base=$(git_run -C "$MAIL_AGENT_SYSTEM_SHARED" rev-parse --verify "refs/remotes/source/$branch" 2>/dev/null ||
+        git_run -C "$MAIL_AGENT_SYSTEM_SHARED" rev-parse --verify "refs/remotes/upstream/$branch")
+    git_run -C "$work/repo" checkout --quiet -B "isolated/$session" "$base"
+    printf '%s\n' "$base" > "$work/base"
+    printf '%s\n' "$branch" > "$work/branch"
+}
+
+import_history() {
+    if [ ! -d "$input/history" ]; then
+        return
+    fi
+
+    [ ! -e "$work/harness" ] || return 65
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$input/history" "$work/harness" 1073741824
+    safe_history
+}
+
+import_workspace() {
+    repository_prepare
+
+    # Preserve the new registration, then restore every working file including
+    # ignored files and the index. The old .git pointer is never installed.
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$input/checkout" "$control/checkout" 1099511627776
+    rm -f "$control/checkout/.git"
+    if [ -f "$work/project" ]; then
+        git_run -C "$work/repo" reset --quiet --hard "$(jq -r .base "$request")"
+    fi
+    find -P "$work/repo" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+    cp -a --no-preserve=ownership -- "$control/checkout/." "$work/repo/"
+    if regular "$input/index" 1073741824; then
+        directory=$(git_run -C "$work/repo" rev-parse --absolute-git-dir)
+        cp "$input/index" "$directory/index"
+    fi
+    rm -rf "$work/harness"
+    import_history
+    touch "$work/imported"
+}
+
+project_events() {
+    while kill -0 "$1" 2>/dev/null; do
+        if regular "$work/events.jsonl" 67108864; then
+            head -c 67108864 "$work/events.jsonl" > "$MAIL_AGENT_SYSTEM_OUTPUT/events.jsonl.new"
+            mv "$MAIL_AGENT_SYSTEM_OUTPUT/events.jsonl.new" "$MAIL_AGENT_SYSTEM_OUTPUT/events.jsonl"
+        fi
+        sleep 1
+    done
+}
+
+run_agent() {
+    task=$(jq -r .task "$request")
+    mkdir -p "$STATE_DIRECTORY/tasks" || return 74
+    mkdir "$STATE_DIRECTORY/tasks/$task" || {
+        echo "this task has already been invoked; it will not execute again" >&2
+        return 70
+    }
+    cp "$request" "$STATE_DIRECTORY/tasks/$task/request.json" || return 74
+    sync "$STATE_DIRECTORY/tasks/$task/request.json" "$STATE_DIRECTORY/tasks/$task" "$STATE_DIRECTORY/tasks" || return 74
+    safe_history || return $?
+    regular "$input/prompt" 16777216 || return 65
+    awk -v directory="$output/attachments" '
+        /^Attachments are available in .*:$/ { $0 = "Attachments are available in " directory ":" }
+        { print }
+    ' "$input/prompt" > "$output/prompt" || return 74
+    if [ -d "$input/attachments" ]; then
+        "$MAIL_AGENT_BIN/mail-agent-system-copy" "$input/attachments" "$output/attachments" 1073741824 || return $?
+    fi
+    model=$(jq -r .model "$request")
+    effort=$(jq -r .effort "$request")
+    touch "$control/mark" || return 74
+    "$MAIL_AGENT_BIN/mail-agent-$driver" "$work" "$output" "$output/prompt" "$mode" "$model" "$effort" &
+    process=$!
+    project_events "$process" &
+    monitor=$!
+    status=0
+    wait "$process" || status=$?
+    kill "$monitor" 2>/dev/null || true
+    wait "$monitor" 2>/dev/null || true
+    return "$status"
+}
+
+export_history() {
+    safe_history
+    mkdir -p "$output/history/$driver"
+    for directory in sessions projects plans; do
+        if [ -d "$work/harness/$driver/$directory" ]; then
+            "$MAIL_AGENT_BIN/mail-agent-system-copy" "$work/harness/$driver/$directory" \
+                "$output/history/$driver/$directory" 1073741824
+        fi
+    done
+}
+
+export_plans() {
+    [ -d "$work/harness/$driver/plans" ] || return 0
+    safe_history
+    mkdir -p "$output/plans"
+    find -P "$work/harness/$driver/plans" -type f -name "*.md" -newer "$control/mark" > "$control/plans"
+    while IFS= read -r plan; do
+        name=$(basename "$plan")
+        printf '%s\n' "$name" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.md$' || return 65
+        regular "$plan" 16777216 || return 65
+        [ ! -e "$output/plans/$name" ] || return 65
+        cp "$plan" "$output/plans/$name"
+    done < "$control/plans"
+}
+
+export_repository() {
+    if [ ! -f "$work/project" ]; then
+        return
+    fi
+    git_run -C "$work/repo" rev-parse HEAD > "$output/head"
+    git_run -C "$work/repo" status --porcelain --untracked-files=normal > "$output/uncommitted"
+    git_run -C "$work/repo" log --oneline "$(cat "$work/base")..HEAD" > "$output/commits"
+    base=$(jq -r .base "$request")
+    if [ "$action" = turn ] && [ -n "$base" ] && [ "$base" != - ]; then
+        mkdir -p "$MAIL_AGENT_SYSTEM_GIT_TMP/patches"
+        git_run -C "$work/repo" format-patch --quiet --no-ext-diff --no-textconv \
+            --no-signature --numbered-files -o "$MAIL_AGENT_SYSTEM_GIT_TMP/patches" "$base..HEAD"
+        for patch in "$MAIL_AGENT_SYSTEM_GIT_TMP/patches/"*; do
+            [ -f "$patch" ] || continue
+            mv "$patch" "$patch.patch"
+        done
+        "$MAIL_AGENT_BIN/mail-agent-system-copy" "$MAIL_AGENT_SYSTEM_GIT_TMP/patches" "$output/patches" 268435456
+    fi
+}
+
+export_snapshot() {
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$work/repo" "$output/checkout" 1099511627776
+    [ -f "$work/project" ] || { export_history; return; }
+    directory=$(git_run -C "$work/repo" rev-parse --absolute-git-dir)
+    regular "$directory/index" 1073741824 || return 65
+    cp "$directory/index" "$output/index"
+    export_history
+}
+
+publish() {
+    for name in base branch agent-session; do
+        if regular "$work/$name" 4096; then
+            cp "$work/$name" "$output/$name"
+        fi
+    done
+
+    if regular "$work/events.jsonl" 67108864; then
+        cp "$work/events.jsonl" "$output/events.jsonl"
+    fi
+    destination="$MAIL_AGENT_SYSTEM_OUTPUT/$request_id"
+    limit=1073741824
+    if [ "$action" = snapshot ]; then
+        limit=1099511627776
+    fi
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$output" "$destination" "$limit"
+    chgrp -hR "${MAIL_AGENT_SYSTEM_RESULT_GROUP:-mail_agent_results}" "$destination"
+    chmod -R g+rX,o-rwx "$destination"
+    chmod g+s "$destination"
+    sync -f "$destination"
+    jq --arg invocation "$INVOCATION_ID" --argjson status "$result" \
+        '{schema:1,request:.request,task:.task,invocation:$invocation,status:$status}' "$request" \
+        > "$destination/outcome.json.new"
+    sync "$destination/outcome.json.new"
+    mv "$destination/outcome.json.new" "$destination/outcome.json"
+    sync "$destination" "$MAIL_AGENT_SYSTEM_OUTPUT"
+}
+
+if [ "$stage" = run ]; then
+    validate_request "$MAIL_AGENT_SYSTEM_REQUEST"
+    mkdir -p "$control" "$output" "$work"
+    cp "$MAIL_AGENT_SYSTEM_REQUEST" "$request"
+else
+    # A failed preflight creates no control record and cannot export results.
+    validate_request "$request"
+fi
+
+driver=$(jq -r .driver "$request")
+mode=$(jq -r .mode "$request")
+action=$(jq -r .action "$request")
+request_id=$(jq -r .request "$request")
+input="$MAIL_AGENT_SYSTEM_INPUT/$request_id"
+MAIL_AGENT_SYSTEM_REPO="$work/repo"
+MAIL_AGENT_SYSTEM_GIT_TMP="$RUNTIME_DIRECTORY/git"
+
+export MAIL_AGENT_SYSTEM_REPO MAIL_AGENT_SYSTEM_GIT_TMP
+
+mkdir -p "$MAIL_AGENT_SYSTEM_GIT_TMP"
+
+if [ "$stage" = run ]; then
+    MAIL_AGENT_SYSTEM_GIT_ACCESS=write
+
+    export MAIL_AGENT_SYSTEM_GIT_ACCESS
+
+    agent_session=$(jq -r .agent_session "$request")
+    if [ -n "$agent_session" ]; then
+        printf '%s\n' "$agent_session" > "$work/agent-session"
+    fi
+    result=0
+    case "$action" in
+        prepare) repository_prepare; import_history ;;
+        branch) repository_branch ;;
+        turn) run_agent || result=$? ;;
+        import) import_workspace ;;
+        inspect|history|snapshot) : ;;
+    esac
+    printf '%s\n' "$result" > "$control/status"
+    exit "$result"
+fi
+
+# systemd runs this stage after terminating the preceding process tree.
+result=1
+if regular "$control/status" 4; then
+    result=$(cat "$control/status")
+fi
+if [ "$result" -eq 0 ] && [ "$SERVICE_RESULT" != success ]; then
+    result=1
+fi
+
+if [ "$result" -eq 0 ]; then
+    export_repository
+    case "$action" in
+        turn) export_plans ;;
+        history) export_history ;;
+        snapshot) export_snapshot ;;
+    esac
+fi
+
+sync -f "$STATE_DIRECTORY"
+publish

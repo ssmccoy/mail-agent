@@ -1,0 +1,51 @@
+#!/bin/sh
+# Privileged preflight: no submission or workspace content is read here.
+
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+export PATH
+
+[ "$(id -u)" -eq 0 ] || exit 77
+[ "$#" -eq 2 ] || exit 64
+
+policy=$1
+session=$2
+runtime=/run/mail-agent-firewall
+library=/usr/local/lib/mail-agent/system
+
+printf '%s\n' "$policy" | /usr/bin/grep -Eq '^[a-z][a-z0-9_]{0,31}$' || exit 64
+printf '%s\n' "$session" | /usr/bin/grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+jq -e --arg policy "$policy" '.policies | has($policy)' /etc/mail-agent/system.json > /dev/null
+
+[ -f /etc/mail-agent/qualified ] ||
+    { [ "$session" = qualification ] && [ -f /etc/mail-agent/qualifying ]; } || {
+    echo "this installation has not completed host qualification" >&2
+    exit 78
+}
+
+if [ -f /etc/mail-agent/qualified ]; then
+    sha256sum --check --status /etc/mail-agent/qualified.hashes || exit 78
+fi
+
+expected="/mailagent.slice/mailagent-$policy.slice/mail-agent-$policy@$session.service"
+[ "$(sed -n 's/^0:://p' /proc/self/cgroup)" = "$expected" ] || exit 78
+
+while read -r inode group; do
+    [ "$(stat -c %i -- "/sys/fs/cgroup$group")" = "$inode" ] || exit 78
+done < "$runtime/cgroups"
+
+scratch=$(mktemp -d "$runtime/verify.XXXXXXXX")
+
+trap 'rm -rf "$scratch"' EXIT
+
+nft --json --stateless list table inet mail_agent > "$scratch/list.json"
+jq -S -f "$library/nft-normalize.jq" "$scratch/list.json" > "$scratch/current.json"
+cmp "$runtime/reference.json" "$scratch/current.json" || {
+    echo "effective nftables policy differs from the installed policy" >&2
+    exit 78
+}
+
+# The result parent is root-owned; no workload can replace an instance directory.
+install -d -m 0755 /var/lib/mail-agent-results
+install -d -o root -g mail_agent_results -m 2770 "/var/lib/mail-agent-results/$session"

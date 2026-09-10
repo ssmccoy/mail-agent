@@ -1,0 +1,43 @@
+#!/bin/sh
+# Enter the stream's outer Landlock domain before opening its submission.
+
+set -eu
+PATH=/usr/local/bin:/usr/bin:/bin
+
+export PATH
+
+[ "$#" -eq 3 ] || exit 64
+
+MAIL_AGENT_SYSTEM_POLICY=$1
+MAIL_AGENT_SYSTEM_SESSION=$2
+MAIL_AGENT_SYSTEM_STAGE=$3
+
+printf '%s\n' "$2" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+case "$3" in run|export) ;; *) exit 64 ;; esac
+
+HOME=$STATE_DIRECTORY
+MAIL_AGENT_SYSTEM_INPUT="/var/lib/mail-agent-submissions/$2"
+MAIL_AGENT_SYSTEM_OUTPUT="/var/lib/mail-agent-results/$2"
+MAIL_AGENT_SYSTEM_REQUEST="$MAIL_AGENT_SYSTEM_INPUT/request.json"
+MAIL_AGENT_OUTPUT_DIR=$RUNTIME_DIRECTORY
+SERVICE_RESULT=${SERVICE_RESULT:-}
+EXIT_CODE=${EXIT_CODE:-}
+EXIT_STATUS=${EXIT_STATUS:-}
+
+export HOME MAIL_AGENT_SYSTEM_POLICY MAIL_AGENT_SYSTEM_SESSION MAIL_AGENT_SYSTEM_STAGE
+export MAIL_AGENT_SYSTEM_INPUT MAIL_AGENT_SYSTEM_OUTPUT MAIL_AGENT_SYSTEM_REQUEST
+export MAIL_AGENT_OUTPUT_DIR SERVICE_RESULT EXIT_CODE EXIT_STATUS
+
+set -- -c /etc/mail-agent/phase.cfg
+if [ -n "$MAIL_AGENT_SYSTEM_PROJECT" ]; then
+    set -- "$@" -r "$MAIL_AGENT_SYSTEM_PROJECT"
+fi
+
+# Strict landrun must install its complete filesystem and IPC policy. There is
+# no best-effort fallback; unsupported kernel features prevent this exec.
+if [ "$MAIL_AGENT_SYSTEM_SESSION" = qualification ]; then
+    [ "$MAIL_AGENT_SYSTEM_STAGE" = run ] || exit 0
+    exec /usr/local/bin/landlock "$@" /bin/sh "/etc/mail-agent/probes/$MAIL_AGENT_SYSTEM_POLICY"
+fi
+
+exec /usr/local/bin/landlock "$@" /usr/local/libexec/mail-agent/mail-agent-system-phase

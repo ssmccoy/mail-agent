@@ -20,6 +20,8 @@ install:
 	install -d $(LIB) $(BIN) $(CONFIG)/mail-agent $(CONFIG)/landlock $(UNITS)
 	install -m 755 $(addprefix bin/,$(SCRIPTS)) $(BIN)
 	install -m 644 lib/runtime.sh $(LIB)
+	install -d $(LIB)/system
+	install -m 644 lib/system/* $(LIB)/system
 	install -m 644 $(addprefix landlock/,$(PROFILES)) $(CONFIG)/landlock
 	install -m 644 systemd/mail-agent-drain.service systemd/mail-agent-drain.timer $(UNITS)
 	install -m 644 config/instructions.md $(CONFIG)/mail-agent/instructions.md
@@ -108,3 +110,27 @@ test-syntax:
 	./test/check
 
 .PHONY: test-syntax
+
+# Stage trusted service components independently of the home installation.
+# Install policy and authorization afterwards with mail-agent-system-admin.
+install-system:
+	@if test -z "$(DESTDIR)"; then \
+	    test "$$(id -u)" -eq 0 || exit 77; \
+	    test -z "$$(systemctl --system --no-legend --plain list-units --state=active,activating,deactivating,reloading 'mail-agent-*@*.service' mail-agent-firewall.service)" || exit 75; \
+	    rm -f /etc/mail-agent/qualified; \
+	fi
+	install -d $(DESTDIR)/usr/local/libexec/mail-agent $(DESTDIR)/usr/local/lib/mail-agent/system
+	install -d $(DESTDIR)/etc/mail-agent/agent $(DESTDIR)/etc/mail-agent/profiles
+	install -m 755 bin/* $(DESTDIR)/usr/local/libexec/mail-agent/
+	install -m 644 lib/runtime.sh $(DESTDIR)/usr/local/lib/mail-agent/
+	install -m 644 lib/system/* $(DESTDIR)/usr/local/lib/mail-agent/system/
+	install -m 644 config/* $(DESTDIR)/etc/mail-agent/agent/
+	for file in landlock/*; do \
+	    sed -e '/^best-effort$$/d' -e '/^connect-tcp /d' -e 's|^rwx /proc$$|ro /proc|' $$file \
+	        > $(DESTDIR)/etc/mail-agent/profiles/$$(basename $$file); \
+	    printf '\nunrestricted-network\n' >> $(DESTDIR)/etc/mail-agent/profiles/$$(basename $$file); \
+	done
+	chmod 644 $(DESTDIR)/etc/mail-agent/profiles/*
+	test -n "$(DESTDIR)" || rm -f /etc/mail-agent/qualified
+
+.PHONY: install-system

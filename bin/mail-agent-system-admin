@@ -1,0 +1,124 @@
+#!/bin/sh
+# Administrator-only deployment and qualification. Never read workload input.
+# Usage: mail-agent-system-admin configure <root-owned.json>
+#        mail-agent-system-admin qualify
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+[ "$(id -u)" -eq 0 ] || exit 77
+[ "$#" -ge 1 ] || exit 64
+library=/usr/local/lib/mail-agent
+binary=/usr/local/libexec/mail-agent
+configuration=/etc/mail-agent/system.json
+
+trusted() {
+    path=$(realpath -e -- "$1") || return 78
+    while [ "$path" != / ]; do
+        [ "$(stat -c %u -- "$path")" -eq 0 ] || return 78
+        [ -z "$(find "$path" -maxdepth 0 -perm /022 -print)" ] || return 78
+        path=$(dirname "$path")
+    done
+}
+
+inactive() {
+    active=$(systemctl --system --no-legend --plain list-units \
+        --state=active,activating,deactivating,reloading 'mail-agent-*@*.service')
+    [ -z "$active" ] || { echo "stop isolated services before administration" >&2; return 75; }
+}
+
+configure() {
+    trusted "$1"
+    jq -e -f "$library/system/config.jq" "$1" > /dev/null
+    inactive
+    systemctl --system stop mail-agent-firewall.service 2>/dev/null || true
+    rm -f /etc/mail-agent/qualified
+    scratch=$(mktemp -d /etc/mail-agent/configure.XXXXXXXX)
+    trap 'rm -rf "$scratch"' EXIT
+    MAIL_AGENT_LIB="$library" "$binary/mail-agent-system-config" "$1" "$scratch/compiled"
+    for group in mail_agent_submit mail_agent_results; do
+        getent group "$group" > /dev/null || groupadd --system "$group"
+    done
+    dispatcher=$(jq -r .dispatcher "$1")
+    id "$dispatcher" > /dev/null
+    usermod -a -G mail_agent_submit,mail_agent_results "$dispatcher"
+    install -d -o "$dispatcher" -g mail_agent_submit -m 2750 /var/lib/mail-agent-submissions
+    install -d -o root -g root -m 0755 /var/lib/mail-agent-results
+    install -d -m 0755 /etc/mail-agent/policies /etc/mail-agent/probes
+    install -m 0644 "$scratch/compiled/system.json" "$configuration"
+    install -m 0644 "$scratch/compiled/phase.cfg" "$scratch/compiled/firewall.nft" /etc/mail-agent/
+    install -m 0644 "$scratch/compiled/"*.env /etc/mail-agent/policies/
+    install -m 0644 "$scratch/compiled/"*.service "$scratch/compiled/"*.slice /etc/systemd/system/
+    systemctl --system daemon-reload
+    # Install starts-only authorization after the immutable templates exist.
+    install -m 0644 "$scratch/compiled/50-mail-agent.rules" /etc/polkit-1/rules.d/
+}
+
+qualify() {
+    inactive
+    rm -f /etc/mail-agent/qualified
+    jq -e -f "$library/system/config.jq" "$configuration" > /dev/null
+    for path in "$binary" "$library" /etc/mail-agent /usr/local/bin/landlock /usr/local/bin/landrun; do
+        trusted "$path"
+    done
+    [ -z "$(find "$binary" "$library" /etc/mail-agent -type f \( ! -user root -o -perm /022 \) -print -quit)" ] || return 78
+    for policy in $(jq -r '.policies | keys[]' "$configuration"); do
+        trusted "/etc/mail-agent/probes/$policy"
+    done
+    [ "$(/usr/local/bin/landrun --version)" = "landrun version 0.1.18" ] || {
+        echo "qualify this implementation with landrun 0.1.18 (strict ABI 9)" >&2
+        return 78
+    }
+    # Only the fixed qualification instance can start without qualification;
+    # it executes administrator-owned probes instead of reading submissions.
+    install -d -o "$(jq -r .dispatcher "$configuration")" -g mail_agent_submit -m 2750 \
+        /var/lib/mail-agent-submissions/qualification
+    touch /etc/mail-agent/qualifying
+    trap 'rm -f /etc/mail-agent/qualifying' EXIT
+    systemctl --system start mail-agent-firewall.service
+    for policy in $(jq -r '.policies | keys[]' "$configuration"); do
+        systemctl --system --wait start "mail-agent-$policy@qualification.service"
+    done
+    {
+        uname -r
+        systemctl --version
+        nft --version
+        sha256sum "$configuration" /etc/mail-agent/firewall.nft
+    } > /etc/mail-agent/qualified.new
+    find "$binary" "$library" /etc/mail-agent/agent /etc/mail-agent/profiles \
+        /etc/mail-agent/policies /etc/mail-agent/probes -type f -print0 |
+        sort -z | xargs -0 sha256sum > /etc/mail-agent/qualified.hashes.new
+    sha256sum "$configuration" /etc/mail-agent/firewall.nft /etc/mail-agent/phase.cfg \
+        /usr/local/bin/landlock /usr/local/bin/landrun \
+        /etc/systemd/system/mail-agent-*@.service /etc/systemd/system/mailagent*.slice \
+        /etc/systemd/system/mail-agent-firewall.service >> /etc/mail-agent/qualified.hashes.new
+    mv /etc/mail-agent/qualified.hashes.new /etc/mail-agent/qualified.hashes
+    mv /etc/mail-agent/qualified.new /etc/mail-agent/qualified
+    sync /etc/mail-agent/qualified /etc/mail-agent
+}
+
+purge() {
+    printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || return 64
+    dispatcher=$(jq -r .dispatcher "$configuration")
+    account_home=$(getent passwd "$dispatcher" | cut -d: -f6)
+    record="$account_home/mail/.agent/streams/$1.json"
+    [ -f "$record" ] && [ ! -L "$record" ] || return 65
+    jq -e '.schema == 1 and .backend == "system" and .state == "retired"' "$record" > /dev/null
+    for policy in $(jq -r '.policies | keys[]' "$configuration"); do
+        unit="mail-agent-$policy@$1.service"
+        state=$(systemctl --system show --value --property=ActiveState "$unit")
+        case "$state" in inactive|failed) ;; *) return 75 ;; esac
+        systemctl --system mask "$unit"
+    done
+    # GNU rm does not follow directory symlinks. Retain dispatcher records and
+    # shared Git refs; their retention is a separate project maintenance step.
+    rm -rf -- "/var/lib/private/mail-agent-$1" "/var/lib/mail-agent-$1" \
+        "/var/lib/mail-agent-results/$1" "/var/lib/mail-agent-submissions/$1"
+}
+
+case "$1:$#" in
+    configure:2) configure "$2" ;;
+    qualify:1) qualify ;;
+    purge:2) purge "$2" ;;
+    *) echo "usage: mail-agent-system-admin configure <root-owned.json> | qualify" >&2; exit 64 ;;
+esac

@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "dispatcher": "scott",
+  "policies": {
+    "example_codex_execute": {
+      "project": "/srv/source/example",
+      "shared": "/var/lib/mail-agent-repositories/example",
+      "driver": "codex",
+      "mode": "execute",
+      "groups": ["example_agents"],
+      "allow": [],
+      "runtime": {
+        "binary": "/usr/local/bin/codex",
+        "packages": "/opt/codex",
+        "configuration": "/etc/mail-agent/harness/codex",
+        "auth": "/srv/mail-agent-auth/codex/auth.json",
+        "cache": "/var/cache/mail-agent/example",
+        "git_config": "/etc/mail-agent/git",
+        "instructions": "/etc/mail-agent/instructions.md",
+        "toolchain": "/opt/toolchains",
+        "toolchain_config": "/etc/mail-agent/prototools"
+      }
+    }
+  }
+}
