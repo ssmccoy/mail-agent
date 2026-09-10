@@ -12,6 +12,8 @@ setup() {
         "$case_home/.local/bin" "$case_home/.config/landlock" \
         "$case_root/tmp" "$case_root/outgoing" "$agent_root/lock" \
         "$agent_root/repos" "$queue"
+    mkdir -p "$case_home/lib/mail-agent"
+    cp "$project_root/lib/runtime.sh" "$case_home/lib/mail-agent/"
     cp "$project_root"/config/* "$case_home/.config/mail-agent/"
 
     # Wrappers select the interpreter for nested invocations as well.

@@ -2,6 +2,8 @@
 # Bounded MCP file operations. Inherit the harness's Landlock restrictions.
 # Usage: mail-agent-files <writable-directory>
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 set -eu
 
 if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
@@ -126,7 +128,7 @@ response() {
                 "$scratch/request"
             ;;
         tools/list)
-            cat "$HOME/.config/mail-agent/file-tools.json"
+            cat "$MAIL_AGENT_CONFIG/file-tools.json"
             ;;
         tools/call)
             file_result

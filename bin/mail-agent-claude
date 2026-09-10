@@ -12,6 +12,8 @@
 #
 # Exits 0 on success, 75 when a retry could succeed, 124 on timeout.
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 PATH=/usr/bin:/bin
 
 export PATH
@@ -46,7 +48,9 @@ else
     with_effort=""
 fi
 
-MAIL_AGENT_DRIVER_HOME=$("$HOME/bin/mail-agent-state" claude "$work") || exit $?
+mail_agent_runtime claude || exit $?
+
+MAIL_AGENT_DRIVER_HOME=$("$MAIL_AGENT_BIN/mail-agent-state" claude "$work") || exit $?
 
 export MAIL_AGENT_DRIVER_HOME
 
@@ -81,44 +85,6 @@ if [ "$access" = research ]; then
     prompt="$out/context-prompt"
 fi
 
-# Grant the source repository only when the thread has one.
-if [ -n "$repo" ]; then
-    with_repo="-r $repo"
-
-    # Derive this grant from dispatcher metadata, never the writable .git file.
-    objects="$HOME/mail/.agent/repos/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
-
-    if [ -L "$objects" ]; then
-        echo "shared Git storage must not be a symlink" >&2
-        exit 65
-    fi
-
-    if [ -d "$objects" ]; then
-        permission=-r
-
-        if [ "$access" = execute ]; then
-            permission=-w
-        fi
-
-        with_repo="$with_repo $permission $objects"
-    fi
-else
-    with_repo=""
-fi
-
-if [ -d "$attachments" ]; then
-    with_attachments="-r $attachments"
-else
-    with_attachments=""
-fi
-
-profile() {
-    case $1 in
-        research) echo mail-agent-claude-research ;;
-        execute) echo mail-agent-claude ;;
-        *)       echo mail-agent-claude-ro ;;
-    esac
-}
 
 permission_mode() {
     case $1 in
@@ -151,12 +117,11 @@ fi
 (
     cd "$work/repo" || exit 70
 
-    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" "$HOME/bin/mail-agent-tools" claude "$mode" timeout "$limit" "$HOME/bin/landlock" \
-        -c "$HOME/.config/landlock/$(profile "$access").cfg" $with_repo \
-        $with_attachments \
-        "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
-        --settings "$HOME/.config/mail-agent/claude-settings.json" \
-        --append-system-prompt-file "$HOME/.config/mail-agent/instructions.md" \
+    PATH="$MAIL_AGENT_EXEC_PATH" "$MAIL_AGENT_BIN/mail-agent-tools" claude "$mode" timeout "$limit" \
+        "$MAIL_AGENT_BIN/mail-agent-launch" claude "$access" "$work" "$attachments" \
+        "$MAIL_AGENT_EXECUTABLE" -p --output-format stream-json --verbose \
+        --settings "$MAIL_AGENT_CONFIG/claude-settings.json" \
+        --append-system-prompt-file "$MAIL_AGENT_CONFIG/instructions.md" \
         --permission-mode "$(permission_mode "$mode")" \
         $with_model $with_effort $session < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
@@ -198,19 +163,19 @@ printf "%s\n" "$result" > "$out/reply.md"
 if jq -e 'select(.type=="assistant")|.message.content[]?
         | select(.type=="tool_use" and .name=="AskUserQuestion")' \
         "$work/events.jsonl" > /dev/null 2>&1; then
-    jq -r -s -f "$HOME/.config/mail-agent/questions.jq" \
+    jq -r -s -f "$MAIL_AGENT_CONFIG/questions.jq" \
         "$work/events.jsonl" > "$out/reply.md"
 fi
 
 jq -r --arg work "$work/" --arg since "" \
-    -f "$HOME/.config/mail-agent/steps.jq" "$work/events.jsonl" \
+    -f "$MAIL_AGENT_CONFIG/steps.jq" "$work/events.jsonl" \
     > "$out/steps.txt"
 
-"$HOME/bin/mail-agent-render" "$work/events.jsonl" > "$out/reasoning.html"
+"$MAIL_AGENT_BIN/mail-agent-render" "$work/events.jsonl" > "$out/reasoning.html"
 
 jq -s 'map(select(.type=="result"))|last' "$work/events.jsonl" > "$out/result"
 
-"$HOME/bin/mail-agent-usage" "$out/result" "$work/events.jsonl" "" \
+"$MAIL_AGENT_BIN/mail-agent-usage" "$out/result" "$work/events.jsonl" "" \
     "$work/cost" > "$out/usage.html"
 
 jq -r '.total_cost_usd // 0' "$out/result" > "$out/cost"

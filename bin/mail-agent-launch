@@ -1,0 +1,65 @@
+#!/bin/sh
+# Select filesystem grants from trusted stream metadata and runtime paths.
+# Usage: mail-agent-launch <driver> <mode> <work> <attachments> <command> [argument ...]
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+if [ "$#" -lt 5 ] || [ ! -d "$3/repo" ]; then
+    echo "usage: mail-agent-launch <driver> <mode> <work> <attachments> <command> [argument ...]" >&2
+    exit 64
+fi
+
+driver=$1
+mode=$2
+work=$3
+attachments=$4
+
+mail_agent_runtime "$driver" || exit $?
+
+case "$mode" in
+    execute) suffix=""; permission=-w ;;
+    research) suffix=-research; permission=-r ;;
+    investigate|plan) suffix=-ro; permission=-r ;;
+    *) exit 64 ;;
+esac
+
+repo=$(cat "$work/project" 2>/dev/null || true)
+
+shift 4
+
+if [ -d "$attachments" ]; then
+    set -- -r "$attachments" "$@"
+fi
+
+if [ -e "$MAIL_AGENT_AUTH" ]; then
+    auth_access=-w
+
+    if [ "$mode" = research ]; then
+        auth_access=-r
+    fi
+
+    set -- "$auth_access" "$MAIL_AGENT_AUTH" "$@"
+fi
+
+if [ "$driver" = pi ] && [ -d "$MAIL_AGENT_SHARED_STATE/extensions" ]; then
+    set -- -r "$MAIL_AGENT_SHARED_STATE/extensions" "$@"
+fi
+
+if [ -n "$repo" ]; then
+    objects="$MAIL_AGENT_REPOSITORIES/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
+
+    if [ -L "$objects" ]; then
+        echo "shared Git storage must not be a symlink" >&2
+        exit 65
+    fi
+
+    if [ -d "$objects" ]; then
+        set -- "$permission" "$objects" "$@"
+    fi
+
+    set -- -r "$repo" "$@"
+fi
+
+exec "$MAIL_AGENT_LANDLOCK" -c "$MAIL_AGENT_PROFILES/mail-agent-$driver$suffix.cfg" "$@"

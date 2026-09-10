@@ -13,4 +13,5 @@ for script in bin/* test/run test/check test/commands/*; do
     esac
 done
 
+sh -n lib/runtime.sh
 bash -n test/helper.bash

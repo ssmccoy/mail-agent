@@ -6,6 +6,8 @@
 # Usage: mail-agent-usage <result.json> <transcript.jsonl> <since>
 #                         [ledger]
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 PATH=/usr/bin:/bin
 
 export PATH
@@ -51,7 +53,7 @@ if ! jq -nr --slurpfile result "$result" \
     --argjson session_present "$session_present" \
     --argjson session_turns "$session_turns" \
     --argjson session_cost "$session_cost" \
-    -f "$HOME/.config/mail-agent/usage.jq" > "$stream"; then
+    -f "$MAIL_AGENT_CONFIG/usage.jq" > "$stream"; then
     exit 65
 fi
 

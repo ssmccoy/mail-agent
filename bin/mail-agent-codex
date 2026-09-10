@@ -9,6 +9,8 @@
 # <work>/agent-session, the outputs land in <out>, and the exit status
 # says whether a retry is worth anything.
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 PATH=/usr/bin:/bin
 
 export PATH
@@ -43,7 +45,9 @@ else
     with_effort=""
 fi
 
-MAIL_AGENT_DRIVER_HOME=$("$HOME/bin/mail-agent-state" codex "$work") || exit $?
+mail_agent_runtime codex || exit $?
+
+MAIL_AGENT_DRIVER_HOME=$("$MAIL_AGENT_BIN/mail-agent-state" codex "$work") || exit $?
 
 export MAIL_AGENT_DRIVER_HOME
 
@@ -78,37 +82,6 @@ if [ "$access" = research ]; then
     prompt="$out/context-prompt"
 fi
 
-# Grant the source repository only when the thread has one.
-if [ -n "$repo" ]; then
-    with_repo="-r $repo"
-
-    # Derive this grant from dispatcher metadata, never the writable .git file.
-    objects="$HOME/mail/.agent/repos/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
-
-    if [ -L "$objects" ]; then
-        echo "shared Git storage must not be a symlink" >&2
-        exit 65
-    fi
-
-    if [ -d "$objects" ]; then
-        permission=-r
-
-        if [ "$access" = execute ]; then
-            permission=-w
-        fi
-
-        with_repo="$with_repo $permission $objects"
-    fi
-else
-    with_repo=""
-fi
-
-if [ -d "$attachments" ]; then
-    with_attachments="-r $attachments"
-else
-    with_attachments=""
-fi
-
 # The final message is written by codex itself, so it has to land
 # somewhere the sandbox can write: the harness scratch directory is
 # outside it.
@@ -118,13 +91,6 @@ last=$MAIL_AGENT_TMP/reply-$$.md
 # is the only one, and the distinction between a turn that may write and
 # one that may not is drawn there: the clone is mounted rox rather than
 # rwx for the modes that refuse edits.
-profile() {
-    case $1 in
-        research) echo mail-agent-codex-research ;;
-        execute) echo mail-agent-codex ;;
-        *)       echo mail-agent-codex-ro ;;
-    esac
-}
 
 # The global rules live in ~/.config/mail-agent/codex-instructions.md, to
 # which CODEX_HOME/AGENTS.md is a symlink; no turn rewrites it. The mail
@@ -154,11 +120,10 @@ fi
 (
     cd "$work/repo" || exit 70
 
-    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" "$HOME/bin/mail-agent-tools" codex "$mode" timeout "$limit" "$HOME/bin/landlock" \
-        -c "$HOME/.config/landlock/$(profile "$access").cfg" $with_repo \
-        $with_attachments \
-        "$HOME/.local/bin/codex" "$@" --json -o "$last" $with_model $with_effort \
-        -c "developer_instructions=$(cat "$HOME/.config/mail-agent/instructions.md")" \
+    PATH="$MAIL_AGENT_EXEC_PATH" "$MAIL_AGENT_BIN/mail-agent-tools" codex "$mode" timeout "$limit" \
+        "$MAIL_AGENT_BIN/mail-agent-launch" codex "$access" "$work" "$attachments" \
+        "$MAIL_AGENT_EXECUTABLE" "$@" --json -o "$last" $with_model $with_effort \
+        -c "developer_instructions=$(cat "$MAIL_AGENT_CONFIG/instructions.md")" \
         --dangerously-bypass-approvals-and-sandbox \
         --skip-git-repo-check < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
@@ -189,19 +154,19 @@ if [ -s "$out/thread" ]; then
     cp "$out/thread" "$work/agent-session"
 fi
 
-jq -r --arg work "$work/" -f "$HOME/.config/mail-agent/steps-codex.jq" \
+jq -r --arg work "$work/" -f "$MAIL_AGENT_CONFIG/steps-codex.jq" \
     "$work/events.jsonl" > "$out/steps.txt"
 
 # Codex reports aggregate token counts rather than money. Convert its events
 # to the result interface used by Claude, estimating Standard API cost at the
 # selected model's published rates.
 if ! jq -rs --arg model "${model:--}" \
-    -f "$HOME/.config/mail-agent/result-codex.jq" \
+    -f "$MAIL_AGENT_CONFIG/result-codex.jq" \
     "$work/events.jsonl" > "$out/result"; then
     exit 70
 fi
 
-"$HOME/bin/mail-agent-usage" "$out/result" "$work/events.jsonl" "" \
+"$MAIL_AGENT_BIN/mail-agent-usage" "$out/result" "$work/events.jsonl" "" \
     "$work/cost" > "$out/usage.html"
 
 jq -r '.total_cost_usd' "$out/result" > "$out/cost"

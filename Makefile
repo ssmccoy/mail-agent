@@ -9,6 +9,7 @@
 
 PREFIX ?= $(HOME)
 BIN = $(PREFIX)/bin
+LIB = $(PREFIX)/lib/mail-agent
 CONFIG = $(PREFIX)/.config
 UNITS = $(CONFIG)/systemd/user
 SCRIPTS = $(notdir $(wildcard bin/*))
@@ -16,8 +17,9 @@ CONFIGS = $(filter-out projects.example instructions.md,$(notdir $(wildcard conf
 PROFILES = $(notdir $(wildcard landlock/*))
 
 install:
-	install -d $(BIN) $(CONFIG)/mail-agent $(CONFIG)/landlock $(UNITS)
+	install -d $(LIB) $(BIN) $(CONFIG)/mail-agent $(CONFIG)/landlock $(UNITS)
 	install -m 755 $(addprefix bin/,$(SCRIPTS)) $(BIN)
+	install -m 644 lib/runtime.sh $(LIB)
 	install -m 644 $(addprefix landlock/,$(PROFILES)) $(CONFIG)/landlock
 	install -m 644 systemd/mail-agent-drain.service systemd/mail-agent-drain.timer $(UNITS)
 	install -m 644 config/instructions.md $(CONFIG)/mail-agent/instructions.md

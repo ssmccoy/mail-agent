@@ -2,6 +2,8 @@
 # Prepare one stream's CLI state, importing its selected transcript and ancestors.
 # Usage: mail-agent-state <driver> <work> [parent-work]
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 set -eu
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ] || [ ! -d "$2" ]; then
@@ -18,8 +20,10 @@ case "$driver" in
     *) echo "unknown driver: $driver" >&2; exit 64 ;;
 esac
 
+mail_agent_runtime "$driver" || exit $?
+
 state="$work/harness/$driver"
-shared="$HOME/mail/.agent/$driver"
+shared=$MAIL_AGENT_SHARED_STATE
 origin="$parent/harness/$driver"
 id=$(cat "$work/agent-session" 2>/dev/null || true)
 
@@ -120,19 +124,21 @@ mkdir -p "$state/sessions"
 case "$driver" in
     claude)
         configuration CLAUDE.md settings.json
-        if [ -e "$shared/.credentials.json" ]; then
-            ln -sfn "$shared/.credentials.json" "$state/.credentials.json"
+        if [ -e "$MAIL_AGENT_AUTH" ]; then
+            ln -sfn "$MAIL_AGENT_AUTH" "$state/.credentials.json"
         fi
         ;;
     codex)
         configuration AGENTS.md config.toml
-        if [ -e "$shared/auth.json" ]; then
-            ln -sfn "$shared/auth.json" "$state/auth.json"
+        if [ -e "$MAIL_AGENT_AUTH" ]; then
+            ln -sfn "$MAIL_AGENT_AUTH" "$state/auth.json"
         fi
         ;;
     pi)
-        shared="$HOME/.pi/agent"
         configuration settings.json models.json
+        if [ -e "$MAIL_AGENT_AUTH" ]; then
+            ln -sfn "$MAIL_AGENT_AUTH" "$state/auth.json"
+        fi
         if [ -d "$shared/extensions" ]; then
             ln -sfn "$shared/extensions" "$state/extensions"
         fi

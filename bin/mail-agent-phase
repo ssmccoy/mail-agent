@@ -3,6 +3,8 @@
 # The caller supplies trusted workspace/output paths separately from the request.
 # Usage: mail-agent-phase <work> <out>
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 set -eu
 
 if [ "$#" -ne 2 ] || [ ! -d "$1/repo" ] || [ ! -d "$2" ]; then
@@ -37,7 +39,7 @@ model=$(jq -r .model "$request")
 effort=$(jq -r .effort "$request")
 
 if ! awk -v driver="$driver" '$2 == driver { found = 1 }
-        END { exit !found }' "$HOME/.config/mail-agent/agents"; then
+        END { exit !found }' "$MAIL_AGENT_CONFIG/agents"; then
     echo "driver is not configured: $driver" >&2
     exit 65
 fi
@@ -49,7 +51,7 @@ fi
 
 status=0
 
-MAIL_AGENT_MODE="$mode" "$HOME/bin/mail-agent-$driver" \
+MAIL_AGENT_MODE="$mode" "$MAIL_AGENT_BIN/mail-agent-$driver" \
     "$work" "$out" "$out/prompt" "$mode" "$model" "$effort" || status=$?
 
 jq --argjson status "$status" \

@@ -15,6 +15,8 @@
 # pi drives a local model, so it reaches the server on localhost rather
 # than the internet, and a turn costs tokens rather than money.
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 PATH=/usr/bin:/bin
 
 export PATH
@@ -31,7 +33,9 @@ fi
 
 attachments=$(dirname "$prompt")/attachments
 
-MAIL_AGENT_DRIVER_HOME=$("$HOME/bin/mail-agent-state" pi "$work") || exit $?
+mail_agent_runtime pi || exit $?
+
+MAIL_AGENT_DRIVER_HOME=$("$MAIL_AGENT_BIN/mail-agent-state" pi "$work") || exit $?
 
 export MAIL_AGENT_DRIVER_HOME
 
@@ -66,53 +70,11 @@ if [ "$access" = research ]; then
     prompt="$out/context-prompt"
 fi
 
-# Grant the source repository only when the thread has one.
-if [ -n "$repo" ]; then
-    with_repo="-r $repo"
-
-    # Derive this grant from dispatcher metadata, never the writable .git file.
-    objects="$HOME/mail/.agent/repos/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
-
-    if [ -L "$objects" ]; then
-        echo "shared Git storage must not be a symlink" >&2
-        exit 65
-    fi
-
-    if [ -d "$objects" ]; then
-        permission=-r
-
-        if [ "$access" = execute ]; then
-            permission=-w
-        fi
-
-        with_repo="$with_repo $permission $objects"
-    fi
-else
-    with_repo=""
-fi
-
-if [ -d "$attachments" ]; then
-    with_attachments="-r $attachments"
-else
-    with_attachments=""
-fi
-
-if [ -d "$HOME/.pi/agent/extensions" ]; then
-    with_repo="$with_repo -r $HOME/.pi/agent/extensions"
-fi
-
 model=${MAIL_AGENT_PI_MODEL:-ggml-org/Qwen3.5-0.8B-GGUF}
 
 # The clone is mounted rox rather than rwx for the modes that refuse
 # edits, the same distinction landlock draws for codex; the tool
 # denylist tells pi so it declines rather than being denied mid-write.
-profile() {
-    case $1 in
-        research) echo mail-agent-pi-research ;;
-        execute) echo mail-agent-pi ;;
-        *)       echo mail-agent-pi-ro ;;
-    esac
-}
 
 # Each turn forks the session it answers rather than advancing it, so
 # every response stays a point a later reply can branch from; the fork's
@@ -132,13 +94,12 @@ mkdir -p "$MAIL_AGENT_DRIVER_HOME/sessions"
 (
     cd "$work/repo" || exit 70
 
-    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" "$HOME/bin/mail-agent-tools" pi "$mode" timeout "$limit" "$HOME/bin/landlock" \
-        -c "$HOME/.config/landlock/$(profile "$access").cfg" \
-        $with_repo $with_attachments -r "$work" -w "$MAIL_AGENT_DRIVER_HOME" \
-        "$HOME/.local/bin/pi" -p --mode json \
+    PATH="$MAIL_AGENT_EXEC_PATH" "$MAIL_AGENT_BIN/mail-agent-tools" pi "$mode" timeout "$limit" \
+        "$MAIL_AGENT_BIN/mail-agent-launch" pi "$access" "$work" "$attachments" \
+        "$MAIL_AGENT_EXECUTABLE" -p --mode json \
         --provider llama-cpp --model "$model" \
         $session --session-dir "$MAIL_AGENT_DRIVER_HOME/sessions" \
-        --append-system-prompt "$HOME/.config/mail-agent/instructions.md" \
+        --append-system-prompt "$MAIL_AGENT_CONFIG/instructions.md" \
         < "$prompt"
 ) > "$work/events.jsonl" 2> "$out/stderr"
 
@@ -172,7 +133,7 @@ if [ -s "$out/thread" ]; then
     cp "$out/thread" "$work/agent-session"
 fi
 
-jq -r --arg work "$work/" -f "$HOME/.config/mail-agent/steps-pi.jq" \
+jq -r --arg work "$work/" -f "$MAIL_AGENT_CONFIG/steps-pi.jq" \
     "$work/events.jsonl" > "$out/steps.txt"
 
 # A local model reports tokens at no cost, so the table counts tokens

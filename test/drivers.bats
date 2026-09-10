@@ -499,3 +499,43 @@ invoke_driver() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"cyclic Codex ancestry"* ]]
 }
+
+@test "drivers use configured installation paths without copying tools into HOME" {
+    prepare_driver
+    installed="$case_root/installed tools"
+    mkdir -p "$installed"
+    mv "$case_home/bin" "$installed/bin"
+    mv "$case_home/.config/mail-agent" "$installed/config"
+    mv "$case_home/.local/bin" "$installed/agents"
+    mkdir -p "$installed/profiles"
+    child_env+=("MAIL_AGENT_BIN=$installed/bin" "MAIL_AGENT_CONFIG=$installed/config"
+        "MAIL_AGENT_PROFILES=$installed/profiles" "MAIL_AGENT_LANDLOCK=$installed/bin/landlock")
+
+    for driver in claude codex pi; do
+        run invoke env "MAIL_AGENT_EXECUTABLE=$installed/agents/$driver" \
+            "$installed/bin/mail-agent-$driver" "$work" "$case_root/result" \
+            "$case_root/prompt" research -
+
+        [ "$status" -eq 0 ]
+        grep -Fx "$installed/agents/$driver" "$case_root/launcher-arguments"
+        grep -Fx "$installed/profiles/mail-agent-$driver-research.cfg" "$case_root/launcher-arguments"
+        [ -s "$case_root/result/reply.md" ]
+    done
+}
+
+@test "shared credentials and configuration use explicit paths with private history" {
+    prepare_driver
+    shared="$case_root/shared settings"
+    auth="$case_root/shared credentials.json"
+    mkdir -p "$shared"
+    printf '{"token":"interactive"}\n' > "$auth"
+    printf 'shared instructions\n' > "$shared/AGENTS.md"
+    run invoke env "MAIL_AGENT_SHARED_STATE=$shared" "MAIL_AGENT_AUTH=$auth" \
+        "$case_home/bin/mail-agent-state" codex "$work"
+
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$work/harness/codex/auth.json")" = "$auth" ]
+    cmp "$shared/AGENTS.md" "$work/harness/codex/AGENTS.md"
+    printf '{"token":"renewed"}\n' > "$auth"
+    cmp "$auth" "$work/harness/codex/auth.json"
+}

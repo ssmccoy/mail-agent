@@ -5,6 +5,8 @@
 #
 # Usage: mail-agent-render <transcript.jsonl> <since-timestamp>
 
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh" || exit 78
+
 PATH=/usr/bin:/bin
 
 export PATH
@@ -25,7 +27,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 if ! jq -r -s --arg since "$since" \
-    -f "$HOME/.config/mail-agent/render.jq" "$records" > "$stream"; then
+    -f "$MAIL_AGENT_CONFIG/render.jq" "$records" > "$stream"; then
     exit 65
 fi
 
