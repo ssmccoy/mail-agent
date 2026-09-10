@@ -1,0 +1,11 @@
+[
+  "--tools",
+  "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch",
+  "--strict-mcp-config",
+  "--mcp-config",
+  "{\"mcpServers\":{}}",
+  "--disallowedTools",
+  "mcp__*",
+  "--setting-sources",
+  ""
+]

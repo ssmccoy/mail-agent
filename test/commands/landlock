@@ -4,6 +4,8 @@ set -eu
 printf "%s\n" "$@" > "$CASE_ROOT/launcher-arguments"
 printf "%s\n" "${MAIL_AGENT_RESEARCH_TMP:-}" > "$CASE_ROOT/research-directory"
 
+printf "%s\n" "${MAIL_AGENT_DRIVER_HOME:-}" > "$CASE_ROOT/driver-home"
+
 while [ "$#" -gt 0 ]; do
     case $1 in
         -c|-r|-w) shift 2 ;;

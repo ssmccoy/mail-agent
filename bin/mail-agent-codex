@@ -43,6 +43,10 @@ else
     with_effort=""
 fi
 
+MAIL_AGENT_DRIVER_HOME=$("$HOME/bin/mail-agent-state" codex "$work") || exit $?
+
+export MAIL_AGENT_DRIVER_HOME
+
 limit=${MAIL_AGENT_TIMEOUT:-60m}
 repo=$(cat "$work/project" 2>/dev/null)
 access=$mode
@@ -128,7 +132,7 @@ fi
 (
     cd "$work/repo" || exit 70
 
-    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
+    PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" "$HOME/bin/mail-agent-tools" codex "$mode" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$access").cfg" $with_repo \
         $with_attachments \
         "$HOME/.local/bin/codex" "$@" --json -o "$last" $with_model $with_effort \

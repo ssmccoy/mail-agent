@@ -1,0 +1,162 @@
+#!/bin/sh
+# Bounded MCP file operations. Inherit the harness's Landlock restrictions.
+# Usage: mail-agent-files <writable-directory>
+
+set -eu
+
+if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+    echo "usage: mail-agent-files <writable-directory>" >&2
+    exit 64
+fi
+
+area=$(realpath -e -- "$1")
+limit=1048576
+scratch=$(mktemp -d "$area/.files.XXXXXXXX")
+
+trap 'rm -rf "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Ordinary reads are also constrained by the inherited Landlock rules.
+read_file() {
+    if [ -d "$1" ]; then
+        find "$1" -mindepth 1 -maxdepth 1 -printf "%f\n" | head -c "$limit"
+        return
+    fi
+
+    if [ ! -f "$1" ]; then
+        echo "not a regular file" >&2
+        return 1
+    fi
+
+    head -c "$limit" -- "$1"
+}
+
+write_file() {
+    jq -jer '.params.arguments.content | select(type == "string")' \
+        "$scratch/request" > "$scratch/replacement" || return 1
+
+    cat "$scratch/replacement" > "$1"
+}
+
+edit_file() {
+    if [ ! -f "$1" ] || [ "$(stat -c %s -- "$1")" -gt "$limit" ]; then
+        echo "expected a regular file no larger than 1 MiB" >&2
+        return 1
+    fi
+
+    jq -jre --rawfile contents "$1" '
+        .params.arguments as $a |
+        if ($a.old | type) != "string" or ($a.new | type) != "string" or
+           $a.old == "" then error("expected nonempty old and string new")
+        else ($contents | split($a.old)) as $parts |
+            if ($parts | length) != 2 then error("expected exactly one match")
+            else $parts[0] + $a.new + $parts[1] end
+        end
+    ' "$scratch/request" > "$scratch/replacement" || return 1
+
+    cat "$scratch/replacement" > "$1"
+}
+
+tool_arguments() {
+    name=$(jq -er '.params.name | select(type == "string")' "$scratch/request") || return 1
+    path=$(jq -er '.params.arguments.path | select(type == "string" and length > 0) |
+        if (explode | any(.[]; . == 0 or . == 10 or . == 13))
+        then error("invalid path") else . end' "$scratch/request") || return 1
+
+    case "$path" in
+        /*) ;;
+        *) path="$area/$path" ;;
+    esac
+
+}
+
+writable_path() {
+    path=$(realpath -m -- "$path") || return 1
+
+    case "$path" in
+        "$scratch"|"$scratch"/*) echo "internal file" >&2; return 1 ;;
+        "$area"/*) ;;
+        *) echo "write outside the working area" >&2; return 1 ;;
+    esac
+
+    if [ -e "$path" ] && [ ! -f "$path" ]; then
+        echo "not a regular file" >&2
+        return 1
+    fi
+
+}
+
+call_file_tool() {
+    tool_arguments || return 1
+
+    if [ "$name" = read ]; then
+        read_file "$path"
+        return
+    fi
+
+    writable_path || return 1
+
+    case "$name" in
+        write) write_file "$path" ;;
+        edit) edit_file "$path" ;;
+        *) echo "unknown file tool" >&2; return 1 ;;
+    esac
+}
+
+file_result() {
+    failed=false
+
+    if ! call_file_tool > "$scratch/result" 2> "$scratch/error"; then
+        failed=true
+        cp "$scratch/error" "$scratch/result"
+    fi
+
+    jq -n --argjson failed "$failed" --rawfile text "$scratch/result" \
+        '{isError:$failed,content:[{type:"text",text:$text}]}'
+}
+
+response() {
+    method=$(jq -r '.method' "$scratch/request")
+
+    case "$method" in
+        initialize)
+            jq '{protocolVersion:(.params.protocolVersion // "2024-11-05"),
+                capabilities:{tools:{}},serverInfo:{name:"mail-agent-files",version:"1"}}' \
+                "$scratch/request"
+            ;;
+        tools/list)
+            cat "$HOME/.config/mail-agent/file-tools.json"
+            ;;
+        tools/call)
+            file_result
+            ;;
+        ping)
+            printf '{}\n'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+while IFS= read -r request; do
+    if [ "${#request}" -gt "$limit" ]; then
+        echo "request exceeds 1 MiB" >&2
+        exit 65
+    fi
+
+    printf "%s\n" "$request" > "$scratch/request"
+
+    if ! jq -e 'has("id")' "$scratch/request" > /dev/null; then
+        continue
+    fi
+
+    if response > "$scratch/response"; then
+        jq -c --slurpfile result "$scratch/response" \
+            '{jsonrpc:"2.0",id:.id,result:$result[0]}' "$scratch/request"
+    else
+        jq -c '{jsonrpc:"2.0",id:.id,error:{code:-32601,message:"Unknown method"}}' \
+            "$scratch/request"
+    fi
+done

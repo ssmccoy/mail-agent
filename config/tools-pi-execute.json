@@ -1,0 +1,4 @@
+[
+  "--tools",
+  "read,bash,grep,find,ls,write,edit"
+]

@@ -369,17 +369,11 @@ if [ -n "$fork" ]; then
         mkdir -p "$cwork/repo"
     fi
 
-    # claude files a session under the worktree it ran in, so the fork
-    # cannot resume the parent from its own new worktree until the parent
-    # transcript is there. Copy it verbatim; nothing is rewritten.
-    if [ "$driver" = claude ]; then
-        proj="$HOME/mail/.agent/claude/projects"
-        from=$(printf "%s" "$work/repo" | sed -e "s|[/.]|-|g")
-        to=$(printf "%s" "$cwork/repo" | sed -e "s|[/.]|-|g")
-
-        mkdir -p "$proj/$to"
-        cp "$proj/$from/$parent_session.jsonl" "$proj/$to/" 2>/dev/null
-    fi
+    case "$driver" in
+        claude|codex|pi)
+            "$HOME/bin/mail-agent-state" "$driver" "$cwork" "$work" > /dev/null || exit $?
+            ;;
+    esac
 
     mkdir -p "$root/queue/$child"
     mv "$message" "$root/queue/$child/$(date +%s%N)"
@@ -651,10 +645,10 @@ mail_patches() {
 # reply rather than staying on this host.
 : > "$scratch/plans"
 
-if [ -d "$HOME/mail/.agent/$driver/plans" ]; then
+if [ -d "$work/harness/$driver/plans" ]; then
     # Keep the generated name: it is what the plan is called on disk,
     # so the attachment and the file can be told to be the same one.
-    find "$HOME/mail/.agent/$driver/plans" -name "*.md" -newer "$scratch/mark" | sort |
+    find "$work/harness/$driver/plans" -name "*.md" -newer "$scratch/mark" | sort |
         while read -r plan; do
             name=$(basename "$plan")
 

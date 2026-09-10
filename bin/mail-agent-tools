@@ -1,0 +1,48 @@
+#!/bin/sh
+# Apply a configured argument array without evaluating shell expressions.
+# Usage: mail-agent-tools <driver> <mode> <command> [argument ...]
+
+set -eu
+
+if [ "$#" -lt 3 ]; then
+    echo "usage: mail-agent-tools <driver> <mode> <command> [argument ...]" >&2
+    exit 64
+fi
+
+driver=$1
+mode=$2
+
+case "$driver:$mode" in
+    claude:investigate|claude:plan|claude:execute|claude:research|\
+    codex:investigate|codex:plan|codex:execute|codex:research|\
+    pi:investigate|pi:plan|pi:execute|pi:research) ;;
+    *) echo "unknown harness or tool mode: $driver:$mode" >&2; exit 64 ;;
+esac
+
+profile="$HOME/.config/mail-agent/tools-$driver-$mode.json"
+
+arguments=$(jq -ce '
+    if type == "array" and length > 0 and length <= 128 and
+       all(.[]; type == "string" and length <= 4096 and
+           (explode | all(.[]; . != 0 and . != 10 and . != 13)))
+    then .[] else error("expected a bounded array of single-line arguments") end
+' "$profile") || exit 78
+
+shift 2
+
+while IFS= read -r argument; do
+    set -- "$@" "$(printf "%s\n" "$argument" | jq -r .)"
+done <<ARGUMENTS
+$arguments
+ARGUMENTS
+
+# Research exposes only the file server, never inherited MCP commands.
+if [ "$driver:$mode" = codex:research ]; then
+    set -- "$@" -c 'mcp_servers={}' -c 'plugins={}' \
+        -c "mcp_servers.mail_agent_files.command=$(printf "%s" "$HOME/bin/mail-agent-files" | jq -Rs .)" \
+        -c "mcp_servers.mail_agent_files.args=$(jq -cn --arg area "$MAIL_AGENT_RESEARCH_TMP" '[$area]')" \
+        -c "mcp_servers.mail_agent_files.required=true" \
+        -c 'mcp_servers.mail_agent_files.enabled_tools=["read","write","edit"]'
+fi
+
+exec "$@"

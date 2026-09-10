@@ -1,0 +1,6 @@
+[
+  "-c",
+  "features.shell_tool=true",
+  "-c",
+  "features.unified_exec=true"
+]

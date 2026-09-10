@@ -248,3 +248,133 @@ invoke_driver() {
 
     grep -F "mail-agent-claude.cfg" "$case_root/launcher-arguments"
 }
+
+@test "research tools exclude shell and delegation for every harness" {
+    prepare_driver
+
+    for driver in claude pi codex; do
+        invoke_driver "$driver" research
+
+        case "$driver" in
+            claude)
+                grep -Fx -- --tools "$case_root/cli-arguments"
+                grep -Fx "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch" "$case_root/cli-arguments"
+                grep -Fx -- --strict-mcp-config "$case_root/cli-arguments"
+                ;;
+            pi)
+                grep -Fx -- --tools "$case_root/cli-arguments"
+                grep -Fx "read,write,edit,grep,find,ls" "$case_root/cli-arguments"
+                ;;
+            codex)
+                grep -Fx "features.shell_tool=false" "$case_root/cli-arguments"
+                grep -Fx "features.unified_exec=false" "$case_root/cli-arguments"
+                grep -Fx "features.multi_agent=false" "$case_root/cli-arguments"
+                ;;
+        esac
+    done
+}
+
+@test "each mode selects its own configurable tool profile" {
+    prepare_driver
+
+    for driver in claude codex pi; do
+        for mode in investigate plan execute research; do
+            case "$driver" in
+                claude|pi)
+                    printf '["--tools", "read"]\n' > "$case_home/.config/mail-agent/tools-$driver-$mode.json"
+                    ;;
+                codex)
+                    printf '["-c", "features.shell_tool=false"]\n' > "$case_home/.config/mail-agent/tools-$driver-$mode.json"
+                    ;;
+            esac
+
+            invoke_driver "$driver" "$mode"
+
+            case "$driver" in
+                claude|pi) grep -Fx "read" "$case_root/cli-arguments" ;;
+                codex) grep -Fx "features.shell_tool=false" "$case_root/cli-arguments" ;;
+            esac
+        done
+    done
+}
+
+@test "invalid and missing tool profiles fail before launching the CLI" {
+    prepare_driver
+
+    for driver in claude codex pi; do
+        profile="$case_home/.config/mail-agent/tools-$driver-research.json"
+        printf '{"bad": true}\n' > "$profile"
+        run invoke_driver "$driver" research
+
+        [ "$status" -ne 0 ]
+        [ ! -e "$case_root/cli-arguments" ]
+        rm "$profile"
+        run invoke_driver "$driver" research
+
+        [ "$status" -ne 0 ]
+        [ ! -e "$case_root/cli-arguments" ]
+    done
+}
+
+@test "tool profile arguments are passed without shell evaluation or word splitting" {
+    prepare_driver
+    jq -n --arg value 'Read,Write,$(touch SHOULD_NOT_EXIST),two words' \
+        '["--tools",$value]' > "$case_home/.config/mail-agent/tools-claude-plan.json"
+    invoke_driver claude plan
+
+    grep -Fx 'Read,Write,$(touch SHOULD_NOT_EXIST),two words' "$case_root/cli-arguments"
+    [ ! -e "$work/repo/SHOULD_NOT_EXIST" ]
+}
+
+@test "Codex research configures required file tools in its writable working area" {
+    prepare_driver
+    invoke_driver codex research
+    directory=$(cat "$case_root/research-directory")
+
+    grep -Fx 'mcp_servers.mail_agent_files.required=true' "$case_root/cli-arguments"
+    grep -Fx "mcp_servers.mail_agent_files.command=\"$case_home/bin/mail-agent-files\"" "$case_root/cli-arguments"
+    grep -Fx "mcp_servers.mail_agent_files.args=[\"$directory\"]" "$case_root/cli-arguments"
+    [ ! -d "$directory" ]
+}
+
+@test "driver histories are private to a mail stream and persist across turns" {
+    prepare_driver
+    mkdir -p "$case_home/mail/.agent/codex/sessions"
+    printf 'private unrelated history\n' > "$case_home/mail/.agent/codex/sessions/unrelated.jsonl"
+
+    for driver in claude codex pi; do
+        invoke_driver "$driver" research
+        state="$work/harness/$driver"
+
+        [ -d "$state" ]
+        [ "$(cat "$case_root/driver-home")" = "$state" ]
+        printf 'preserve history\n' > "$state/sentinel"
+        invoke_driver "$driver" research
+
+        [ "$(cat "$state/sentinel")" = "preserve history" ]
+        [ ! -e "$state/sessions/unrelated.jsonl" ]
+    done
+}
+
+@test "fork state imports only its selected parent transcript" {
+    prepare_driver
+    child="$agent_root/work/22222222-2222-4222-a222-222222222222"
+    mkdir -p "$child/repo" "$work/harness/codex/sessions"
+    printf 'parent-session\n' > "$child/agent-session"
+    printf 'selected\n' > "$work/harness/codex/sessions/rollout-parent-session.jsonl"
+    printf 'unrelated\n' > "$work/harness/codex/sessions/rollout-other-session.jsonl"
+    run invoke "$case_home/bin/mail-agent-state" codex "$child" "$work"
+
+    [ "$status" -eq 0 ]
+    [ "$(cat "$child/harness/codex/sessions/rollout-parent-session.jsonl")" = selected ]
+    [ ! -e "$child/harness/codex/sessions/rollout-other-session.jsonl" ]
+}
+
+@test "research profiles grant only stream runtime state and read-only credentials" {
+    for driver in claude codex pi; do
+        profile="$project_root/landlock/mail-agent-$driver-research.cfg"
+
+        grep -Fx 'rw "$MAIL_AGENT_DRIVER_HOME"' "$profile"
+        ! grep -Eq '^rw[x]? (~/(mail/\.agent|\.claude|\.codex|\.pi)|/proc)' "$profile"
+    done
+}

@@ -1,0 +1,98 @@
+#!/bin/sh
+# Prepare one stream's CLI state, importing only its selected transcript.
+# Usage: mail-agent-state <driver> <work> [parent-work]
+
+set -eu
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ] || [ ! -d "$2" ]; then
+    echo "usage: mail-agent-state <driver> <work> [parent-work]" >&2
+    exit 64
+fi
+
+driver=$1
+work=$2
+parent=${3:-$work}
+
+case "$driver" in
+    claude|codex|pi) ;;
+    *) echo "unknown driver: $driver" >&2; exit 64 ;;
+esac
+
+state="$work/harness/$driver"
+shared="$HOME/mail/.agent/$driver"
+origin="$parent/harness/$driver"
+id=$(cat "$work/agent-session" 2>/dev/null || true)
+
+case "$id" in
+    *[!A-Za-z0-9_-]*) echo "invalid parent session" >&2; exit 65 ;;
+esac
+
+if [ ! -d "$origin" ]; then
+    origin=$shared
+fi
+
+# Only fixed configuration files are imported from the user's CLI setup.
+configuration() {
+    for name in "$@"; do
+        if [ -f "$shared/$name" ]; then
+            cp --remove-destination "$shared/$name" "$state/$name"
+        fi
+    done
+}
+
+transcripts() {
+    if [ -z "$id" ] || [ "$origin" = "$state" ]; then
+        return
+    fi
+
+    source="$origin/sessions"
+    destination="$state/sessions"
+
+    case "$driver" in
+        claude)
+            source="$origin/projects"
+            encoded=$(printf "%s" "$work/repo" | sed 's|[/.]|-|g')
+            destination="$state/projects/$encoded"
+            ;;
+        pi)
+            if [ "$origin" = "$HOME/mail/.agent/pi" ]; then
+                source=$origin
+            fi
+            ;;
+    esac
+
+    if [ ! -d "$source" ]; then
+        return
+    fi
+
+    mkdir -p "$destination"
+    find "$source" -type f -name "*$id.jsonl" -exec cp -- {} "$destination/" \;
+}
+
+umask 077
+mkdir -p "$state/sessions"
+
+case "$driver" in
+    claude)
+        configuration CLAUDE.md settings.json
+        if [ -e "$shared/.credentials.json" ]; then
+            ln -sfn "$shared/.credentials.json" "$state/.credentials.json"
+        fi
+        ;;
+    codex)
+        configuration AGENTS.md config.toml
+        if [ -e "$shared/auth.json" ]; then
+            ln -sfn "$shared/auth.json" "$state/auth.json"
+        fi
+        ;;
+    pi)
+        shared="$HOME/.pi/agent"
+        configuration settings.json models.json
+        if [ -d "$shared/extensions" ]; then
+            ln -sfn "$shared/extensions" "$state/extensions"
+        fi
+        ;;
+esac
+
+transcripts
+printf "%s\n" "$state"

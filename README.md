@@ -146,12 +146,13 @@ explanation without starting an agent turn.
 Research uses dedicated Landlock profiles for all drivers. The working
 directory and any assigned repository are read-only; shared Git objects are
 readable only for an assigned worktree. Build caches are not writable. Each
-turn has private temporary storage, deleted after response extraction. The
-CLI’s session state and authentication files remain writable for continuation
-and credential refresh. Landlock applies the same permissions to the CLI and
-its tools; these runtime directories are writable by both. Research therefore
-restricts application writes, but does not enforce that the response is the
-only filesystem write.
+turn has private temporary storage, deleted after response extraction. CLI
+history and runtime metadata use a private directory for each mail stream.
+Research credentials are read-only; renew authentication through the
+interactive CLI. Landlock applies the same filesystem permissions to the CLI
+and its tools, so runtime state remains writable by both. Research therefore
+permits history and working-area writes, without granting writes to the
+checkout or build caches.
 
 Codex disables ancestor project discovery for repository-free threads and
 enables live web search for research. HTTPS access remains available under
@@ -172,6 +173,35 @@ branch. An unknown branch produces an error reply without running the agent.
 
 `!details` returns the recorded session details without running the agent or
 waiting in the turn queue.
+
+### Tool profiles
+
+Each harness and mode selects a separate JSON argument array from
+`~/.config/mail-agent/tools-<driver>-<mode>.json`. Edit these installed files
+to configure tools independently for investigate, plan, execute, and research.
+Installation preserves existing profiles. Missing or invalid profiles prevent
+CLI execution. Arguments are passed without shell evaluation or word splitting.
+
+Claude uses `--tools`; pi uses `--tools` across built-in and extension tools.
+Their research defaults allow file reading, writing, editing, and searching,
+with Claude's web tools also enabled. Research omits shell and delegation
+tools. Claude disables inherited MCP configuration and user/project setting
+sources for research. Its research permission mode permits file operations,
+while Landlock restricts the writable paths.
+
+Codex research disables shell, unified execution, delegation, apps, hooks, and
+plugin discovery in its tool profile. It replaces inherited MCP configuration
+with the required `mail-agent-files` server, exposing only `read`, `write`, and
+`edit`. File reads remain subject to Landlock; writes and exact-match edits are
+restricted to the private research working area. Requests and file reads are
+limited to 1 MiB. The helper uses the existing shell, jq, and system utilities;
+it exposes no command-execution tool. Codex web search remains enabled.
+
+Tool profiles are trusted configuration. These flags must be supported by the
+installed CLI versions. The offline tests verify argument selection and actual
+file-server operations; qualification with each installed CLI is still
+required. Changing a tool profile does not expand Landlock filesystem
+permissions.
 
 ### Effort
 
@@ -326,7 +356,11 @@ the session from running.
 
 Claude and Codex use the same worker and reply format, with separate drivers
 for CLI invocation and event conversion. Aliases using the same driver share
-its credentials and state directory; the configured model distinguishes them.
+credentials; each mail stream has its own CLI history and runtime metadata
+under `work/<session>/harness/<driver>`. The configured model distinguishes
+aliases. Existing streams import their selected continuation transcript from
+the former shared history directory; forks copy only the selected parent
+transcript.
 
 | Setting                | Claude                        | Codex                               |
 |------------------------|-------------------------------|-------------------------------------|
