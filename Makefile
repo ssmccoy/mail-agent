@@ -74,7 +74,7 @@ notify:
 
 check:
 	@for tool in postconf sendmail mhdr mshow mmime jq pandoc awk w3m git \
-	    flock systemd-run landrun; do \
+	    flock realpath stat sync systemd-run landrun; do \
 	    command -v $$tool >/dev/null 2>&1 || echo "missing: $$tool"; \
 	done
 	@command -v landlock >/dev/null 2>&1 || \

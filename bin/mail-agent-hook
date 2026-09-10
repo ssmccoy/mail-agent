@@ -51,7 +51,9 @@ printf "X-Mail-Agent: %s\n" "$agent" > "$message"
 cat >> "$message"
 
 # Never answer our own mail: a loop here would run until the disk fills.
-if mhdr -h x-claude-agent "$message" | grep -q .; then
+if mhdr -h x-claude-agent "$message" | grep -q . ||
+   { mhdr -h x-mail-session "$message" | grep -q . &&
+     mhdr -h auto-submitted "$message" | grep -qi '^auto-replied$'; }; then
     rm -f "$message"
     exit 0
 fi
@@ -86,8 +88,8 @@ if mshow -R "$message" 2>/dev/null </dev/null | grep -q "^!details[[:space:]]*$"
 fi
 
 mkdir -p "$root/queue/$session"
-mv "$message" "$root/queue/$session/$(date +%s%N)"
+queued="$root/queue/$session/$(date +%s%N)"
 
-"${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
-    --unit="mail-agent-$session-$(date +%s%N)" \
-    flock "$root/lock/$session" "$HOME/bin/mail-agent-run" "$session"
+mv "$message" "$queued"
+
+"$HOME/bin/mail-agent-dispatch" "$session" "$(basename "$queued")"

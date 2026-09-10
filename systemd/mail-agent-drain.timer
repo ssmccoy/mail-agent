@@ -1,5 +1,5 @@
 [Unit]
-Description=Retry queued mail-agent turns every five minutes
+Description=Schedule queued mail-agent turns every five minutes
 
 [Timer]
 OnBootSec=5min

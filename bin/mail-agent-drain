@@ -1,8 +1,7 @@
 #!/bin/sh
 #
-# Retry messages left in the queue by a turn that could not run, such as
-# one that found no valid login. Nothing else re-fires them: postfix
-# considered the delivery complete the moment the hook returned.
+# Schedule queued messages whose delivery-time wakeup did not execute them.
+# Completed and failed tasks are never executed again.
 #
 # Sessions already running are skipped rather than waited for.
 
@@ -23,7 +22,9 @@ for queue in "$agent"/queue/*/; do
         continue
     fi
 
-    flock -n "$agent/lock/$session" "$HOME/bin/mail-agent-run" "$session" &
+    if flock -n "$agent/lock/$session" true; then
+        "$HOME/bin/mail-agent-dispatch" "$session" &
+    fi
 done
 
 wait

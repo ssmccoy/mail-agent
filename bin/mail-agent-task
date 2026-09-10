@@ -1,0 +1,53 @@
+#!/bin/sh
+# Record one task's execution. Never rerun a task with an existing record.
+# Usage: mail-agent-task <work> <out>
+
+set -eu
+
+if [ "$#" -ne 2 ] || [ ! -d "$1" ] || [ ! -d "$2" ]; then
+    echo "usage: mail-agent-task <work> <out>" >&2
+    exit 64
+fi
+
+work=$1
+out=$2
+session=$(basename "$work")
+task=$(jq -er '.task | select(type == "string" and test("^[A-Za-z0-9_-]{1,64}$"))' \
+    "$out/request.json") || exit 65
+
+case "$session" in
+    ""|*[!A-Za-z0-9_-]*) echo "invalid mail session" >&2; exit 65 ;;
+esac
+
+record="$HOME/mail/.agent/tasks/$session/$task"
+status=0
+
+umask 077
+mkdir -p "$HOME/mail/.agent/tasks/$session"
+
+if ! mkdir "$record" 2>/dev/null; then
+    echo "Task $task has an existing execution record; it will not be run again." >&2
+    exit 70
+fi
+
+cp "$out/request.json" "$record/request.json"
+printf '{"state":"running"}\n' > "$record/status.json"
+sync "$record/request.json" "$record/status.json" "$record" \
+    "$record/.." "$record/../.." "$record/../../.."
+
+"$HOME/bin/mail-agent-phase" "$work" "$out" || status=$?
+
+# Preserve results for inspection even if mail composition is interrupted.
+for name in outcome.json reply.md cost result steps.txt usage.html reasoning.html stderr; do
+    if [ -f "$out/$name" ] && [ ! -L "$out/$name" ]; then
+        cp "$out/$name" "$record/$name"
+    fi
+done
+
+jq -n --argjson status "$status" \
+    '{state:(if $status == 0 then "completed" else "failed" end),status:$status}' \
+    > "$record/status.json.new"
+mv "$record/status.json.new" "$record/status.json"
+sync "$record/"* "$record"
+
+exit "$status"

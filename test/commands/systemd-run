@@ -3,3 +3,18 @@ set -eu
 
 # Record scheduling without starting a detached process.
 printf "%s\n" "$@" >> "$CASE_ROOT/scheduled"
+
+if [ -f "$CASE_ROOT/scheduled-status" ]; then
+    exit "$(cat "$CASE_ROOT/scheduled-status")"
+fi
+
+if [ -f "$CASE_ROOT/run-scheduled" ]; then
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --*) shift ;;
+            *) break ;;
+        esac
+    done
+
+    exec "$@"
+fi

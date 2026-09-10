@@ -5,6 +5,15 @@ work=$1
 out=$2
 prompt=$3
 
+if [ -f "$CASE_ROOT/check-descriptors" ]; then
+    for descriptor in /proc/self/fd/*; do
+        if [ "$(readlink "$descriptor" 2>/dev/null)" = "$HOME/mail/.agent/lock/$(basename "$work")" ]; then
+            echo "inherited dispatcher lock" >&2
+            exit 70
+        fi
+    done
+fi
+
 printf "%s\n" "$@" >> "$CASE_ROOT/driver-arguments"
 cat "$prompt" >> "$CASE_ROOT/prompts"
 

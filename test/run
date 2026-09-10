@@ -3,7 +3,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-for tool in bats git mhdr mshow mmime jq awk pandoc flock timeout; do
+for tool in bats git mhdr mshow mmime jq awk pandoc flock timeout realpath stat sync; do
     command -v "$tool" >/dev/null 2>&1 || {
         printf "missing test dependency: %s\n" "$tool" >&2
         exit 69

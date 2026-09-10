@@ -58,27 +58,49 @@ if [ -z "$repo" ]; then
     access=research
 fi
 
-# Research has private temporary storage and no writable checkout.
-if [ "$access" = research ]; then
-    mkdir -p "${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}" || exit 70
+# Every invocation has private scratch; research exposes it through file tools.
+mkdir -p "${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}" || exit 70
 
-    MAIL_AGENT_RESEARCH_TMP=$(mktemp -d "${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}/research.XXXXXXXX") || exit 70
+MAIL_AGENT_TMP=$(mktemp -d "${MAIL_AGENT_OUTPUT_DIR:-/tmp/mail-agent}/turn.XXXXXXXX") || exit 70
+
+export MAIL_AGENT_TMP
+
+trap 'rm -rf "$MAIL_AGENT_TMP"' EXIT
+
+if [ "$access" = research ]; then
+    MAIL_AGENT_RESEARCH_TMP=$MAIL_AGENT_TMP
 
     export MAIL_AGENT_RESEARCH_TMP
 
-    trap 'rm -rf "$MAIL_AGENT_RESEARCH_TMP"' EXIT
+    {
+        printf "Research working area: %s\n" "$MAIL_AGENT_RESEARCH_TMP"
+        printf "Use file tools there for downloaded contents. Do not edit CLI history.\n\n"
+        cat "$prompt"
+    } > "$out/context-prompt"
+
+    prompt="$out/context-prompt"
 fi
 
 # Grant the source repository only when the thread has one.
 if [ -n "$repo" ]; then
     with_repo="-r $repo"
 
-    if [ "$access" = research ]; then
-        objects=$(git -C "$work/repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+    # Derive this grant from dispatcher metadata, never the writable .git file.
+    objects="$HOME/mail/.agent/repos/$(printf "%s" "$repo" | sed -e 's|^/||' -e 's|/|-|g')"
 
-        if [ -n "$objects" ]; then
-            with_repo="$with_repo -r $objects"
+    if [ -L "$objects" ]; then
+        echo "shared Git storage must not be a symlink" >&2
+        exit 65
+    fi
+
+    if [ -d "$objects" ]; then
+        permission=-r
+
+        if [ "$access" = execute ]; then
+            permission=-w
         fi
+
+        with_repo="$with_repo $permission $objects"
     fi
 else
     with_repo=""

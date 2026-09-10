@@ -1,5 +1,5 @@
 [Unit]
-Description=Retry queued mail-agent turns
+Description=Schedule queued mail-agent turns
 
 [Service]
 Type=oneshot

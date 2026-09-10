@@ -63,8 +63,9 @@ Real systemd scheduling and Landlock permissions need a separate Linux
 integration suite. CLI fixtures do not establish compatibility with a newly
 released agent CLI.
 
-Two identified defects remain separate from this harness change: outgoing mail
-uses `X-Mail-Agent` while the delivery hook’s loop check reads
-`X-Claude-Agent`, and delivery failures can advance queue or patch state.
-Regression tests for those defects should accompany their fixes; this suite
-does not establish successful handling of those conditions.
+Task records preserve phase output and prevent automatic agent re-execution.
+The suite covers terminal driver and scheduling failures, generated-mail loop
+prevention, phase request validation, and the research file-tool interface.
+Delivery failures can still advance queue or patch state; these task records do
+not provide transactional mail delivery. Real CLI tool availability and kernel
+confinement require deployment qualification.

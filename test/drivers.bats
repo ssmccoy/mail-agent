@@ -13,6 +13,12 @@ prepare_driver() {
     done
 }
 
+prepare_worktree() {
+    shared="$agent_root/repos/$(printf "%s" "$source_repo" | sed -e 's|^/||' -e 's|/|-|g')"
+    invoke git clone -q --bare --no-hardlinks "$source_repo" "$shared"
+    invoke git -C "$shared" worktree add -q "$work/repo"
+}
+
 invoke_driver() {
     invoke "$case_home/bin/mail-agent-$1" "$work" "$case_root/result" \
         "$case_root/prompt" "$2" \
@@ -199,7 +205,7 @@ invoke_driver() {
 
 @test "research grants read access to an existing worktree object directory" {
     prepare_driver
-    invoke git -C "$source_repo" worktree add -q "$work/repo"
+    prepare_worktree
     objects=$(git -C "$work/repo" rev-parse --path-format=absolute --git-common-dir)
 
     for driver in claude codex pi; do
@@ -230,7 +236,7 @@ invoke_driver() {
 
         [ -f "$profile" ]
         grep -Fx "rox ." "$profile"
-        grep -Fx "ro ~/mail/.agent/repos" "$profile"
+        ! grep -F "~/mail/.agent/repos" "$profile"
         ! grep -Eq "^best-effort|^rwx /proc|^rw[x]? ~/mail/.agent/repos" "$profile"
     done
 }
@@ -376,5 +382,67 @@ invoke_driver() {
 
         grep -Fx 'rw "$MAIL_AGENT_DRIVER_HOME"' "$profile"
         ! grep -Eq '^rw[x]? (~/(mail/\.agent|\.claude|\.codex|\.pi)|/proc)' "$profile"
+    done
+}
+
+@test "drivers grant only their project's Git storage with mode-specific access" {
+    prepare_driver
+    prepare_worktree
+    objects=$(git -C "$work/repo" rev-parse --path-format=absolute --git-common-dir)
+
+    for driver in claude codex pi; do
+        for mode in investigate plan research execute; do
+            invoke_driver "$driver" "$mode"
+            permission=-r
+
+            if [ "$mode" = execute ]; then
+                permission=-w
+            fi
+
+            awk -v permission="$permission" -v objects="$objects" \
+                'previous == permission && $0 == objects { found = 1 }
+                { previous = $0 } END { exit !found }' "$case_root/launcher-arguments"
+        done
+    done
+}
+
+@test "research prompts identify the writable working area without a shell lookup" {
+    prepare_driver
+
+    for driver in claude codex pi; do
+        invoke_driver "$driver" research
+        directory=$(cat "$case_root/research-directory")
+
+        grep -Fx "Research working area: $directory" "$case_root/cli-prompt"
+        grep -Fx "Please inspect." "$case_root/cli-prompt"
+    done
+}
+
+@test "every mode uses private temporary storage and removes it after execution" {
+    prepare_driver
+
+    for driver in claude codex pi; do
+        for mode in investigate plan execute research; do
+            invoke_driver "$driver" "$mode"
+            directory=$(cat "$case_root/temporary-directory")
+
+            [ -n "$directory" ]
+            [ ! -d "$directory" ]
+        done
+    done
+
+    ! grep -E '^rw[x]? /tmp/mail-agent$' "$project_root"/landlock/*.cfg
+}
+
+@test "a modified worktree pointer cannot grant writes to the original Git directory" {
+    prepare_driver
+    printf 'gitdir: %s/.git\n' "$source_repo" > "$work/repo/.git"
+
+    for driver in claude codex pi; do
+        invoke_driver "$driver" execute
+
+        ! awk -v directory="$source_repo/.git" \
+            'previous == "-w" && $0 == directory { found = 1 }
+            { previous = $0 } END { exit !found }' "$case_root/launcher-arguments"
     done
 }

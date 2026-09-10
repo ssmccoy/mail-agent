@@ -108,7 +108,11 @@ different repository.
 Reply in the thread to continue work. Session identifiers in `Message-Id` and
 `References` associate replies with their conversations. A message with no
 matching thread starts a new session. Project sessions use separate worktrees
-from a shared clone of the source repository.
+from one shared clone per source repository. New shared clones use group
+permissions and copy objects without hard links to the source. Each driver
+receives access only to its assigned project's Git store. Existing shared
+clones require a separate permissions and hard-link migration before use by
+dynamic system users.
 
 ## Modes and directives
 
@@ -146,13 +150,14 @@ explanation without starting an agent turn.
 Research uses dedicated Landlock profiles for all drivers. The working
 directory and any assigned repository are read-only; shared Git objects are
 readable only for an assigned worktree. Build caches are not writable. Each
-turn has private temporary storage, deleted after response extraction. CLI
-history and runtime metadata use a private directory for each mail stream.
-Research credentials are read-only; renew authentication through the
-interactive CLI. Landlock applies the same filesystem permissions to the CLI
-and its tools, so runtime state remains writable by both. Research therefore
-permits history and working-area writes, without granting writes to the
-checkout or build caches.
+turn has private temporary storage, deleted after response extraction. Other
+modes also use private temporary directories; non-execute scratch and shared
+build caches have read/write permission without file execution. CLI history and
+runtime metadata use a private directory for each mail stream. Research
+credentials are read-only; renew authentication through the interactive CLI.
+Landlock applies the same filesystem permissions to the CLI and its tools, so
+runtime state remains writable by both. Research therefore permits history and
+working-area writes, without granting writes to the checkout or build caches.
 
 Codex disables ancestor project discovery for repository-free threads and
 enables live web search for research. HTTPS access remains available under
@@ -340,9 +345,19 @@ The agent cannot push to the source repository. Apply the mailed commits with
 Turns within a session run sequentially in arrival order. Separate sessions can
 run concurrently. A new message waits for the active turn to finish.
 
-Messages remain queued when a turn cannot run. An expired login produces a
-notification, and the drain timer retries queued requests every five minutes.
-Postfix does not retry after the delivery hook has returned successfully.
+Each queued message identifies one task. Before invoking a driver, the worker
+records that task under `~/mail/.agent/tasks/<session>/<task>/`. Driver
+failures and timeouts are terminal and produce a failure reply; request another
+attempt by sending another message. A task with an existing execution record is
+never run again automatically, including after interruption. Completed output
+remains in the task directory for inspection if mail composition is
+interrupted.
+
+The delivery hook, forks, and drain timer use the same dispatch command. A
+scheduling failure produces an immediate reply when no existing session worker
+can consume the message. The five-minute timer schedules waiting messages; it
+does not retry failed agent tasks. Postfix does not retry after the delivery
+hook has returned successfully.
 
     systemctl --user list-timers mail-agent-drain.timer
     journalctl --user -u 'mail-agent-*' -n 50
@@ -385,6 +400,9 @@ adjustments, which aggregate CLI usage does not identify.
 | `~/.forward+<alias>`                  | Agent Maildir delivery and hook invocation |
 | `~/bin/mail-agent-hook`               | Queue incoming requests                    |
 | `~/bin/mail-agent-run`                | Run a turn and compose its response        |
+| `~/bin/mail-agent-dispatch`           | Schedule queued tasks through user systemd |
+| `~/bin/mail-agent-phase`              | Execute a validated driver request         |
+| `~/bin/mail-agent-task`               | Record a task and preserve its result      |
 | `~/bin/mail-agent-render`             | Render transcripts as HTML                 |
 | `~/bin/mail-agent-drain`              | Retry queued requests                      |
 | `~/bin/mail-agent-usage`              | Report costs                               |
@@ -415,4 +433,14 @@ If no reply arrives, inspect the queue and systemd journal. A queued message
 may be waiting for authentication or a retry. If the message is no longer
 queued, inspect the journal for a failure after processing began.
 
+## Isolation adoption
+
+The accepted system-service and nftables design is recorded in [the adoption
+document]. The current implementation includes strict non-execute profiles,
+per-mode tool configuration, per-stream CLI state, a phase request interface,
+and terminal task records. Execution still uses user services and the current
+Landlock network rules. No nftables policy or dynamic system-user backend is
+installed by `make install`.
+
   [landrun]: https://github.com/Zouuup/landrun
+  [the adoption document]: docs/isolation.md

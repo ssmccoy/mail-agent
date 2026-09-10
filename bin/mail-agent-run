@@ -258,7 +258,8 @@ if [ ! -d "$work" ]; then
     shared=$(shared_clone "$repo")
 
     if [ ! -d "$shared" ]; then
-        git clone --quiet --bare "$repo" "$shared"
+        git clone --quiet --bare --no-hardlinks -c core.sharedRepository=0660 \
+            "$repo" "$shared"
         git -C "$shared" config remote.origin.fetch \
             "+refs/heads/*:refs/remotes/origin/*"
 
@@ -376,13 +377,11 @@ if [ -n "$fork" ]; then
     esac
 
     mkdir -p "$root/queue/$child"
-    mv "$message" "$root/queue/$child/$(date +%s%N)"
+    mv "$message" "$root/queue/$child/$(basename "$message")"
 
     # A fork is its own thread with its own lock, so hand it to a fresh
     # worker rather than running it under this one's.
-    "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
-        --unit="mail-agent-$child-$(date +%s%N)" \
-        flock "$root/lock/$child" "$HOME/bin/mail-agent-run" "$child"
+    "$HOME/bin/mail-agent-dispatch" "$child" "$(basename "$message")"
 
     rmdir "$queue" 2>/dev/null
 
@@ -537,8 +536,12 @@ MAIL_AGENT_MODE=$mode
 
 export MAIL_AGENT_MODE
 
-MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-$driver" \
-    "$work" "$scratch" "$scratch/prompt" "$mode" "$model" "$effort" \
+jq -n --arg task "$(basename "$message")" --arg driver "$driver" \
+    --arg mode "$mode" --arg model "$model" --arg effort "$effort" \
+    '{schema:1,task:$task,driver:$driver,mode:$mode,model:$model,effort:$effort}' \
+    > "$scratch/request.json"
+
+MAIL_AGENT_TIMEOUT="$limit" "$HOME/bin/mail-agent-task" "$work" "$scratch" \
     2> "$scratch/stderr"
 
 status=$?
@@ -552,23 +555,16 @@ if [ "$status" -eq 124 ]; then
     exit 0
 fi
 
-# A failure a later run could survive keeps its message queued for the
-# drain; anything else consumes it, so a permanent fault cannot loop.
+# A failed invocation is terminal. A new message requests another attempt.
 if [ "$status" -ne 0 ]; then
-    if [ -f "$work/notified" ]; then
-        exit 0
-    fi
-
     printf "The agent could not run this turn:\n\n    %s\n\n%s\n" \
         "$(tail -3 "$scratch/stderr")" \
-        "Your message is still queued and will be retried." > "$scratch/body"
+        "The task failed and will not be retried. Reply to request another turn." > "$scratch/body"
 
     reply "$scratch/body" "$message"
-    touch "$work/notified"
+    rm -f "$message"
     exit 0
 fi
-
-rm -f "$work/notified"
 
 printf "%s %s\n" "$started" "$(cat "$scratch/cost" 2>/dev/null || echo 0)" \
     >> "$work/cost"

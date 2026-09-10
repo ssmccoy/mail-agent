@@ -1,0 +1,68 @@
+#!/bin/sh
+# Schedule an existing queue entry without running agent code in the hook.
+# Usage: mail-agent-dispatch <session> [task]
+
+set -eu
+
+PATH=/usr/bin:/bin
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+
+export PATH XDG_RUNTIME_DIR
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    echo "usage: mail-agent-dispatch <session> [task]" >&2
+    exit 64
+fi
+
+session=$1
+task=${2:-}
+root="$HOME/mail/.agent"
+
+for identifier in "$session" "$task"; do
+    case "$identifier" in
+        *[!A-Za-z0-9_-]*) echo "invalid session or task" >&2; exit 64 ;;
+    esac
+
+done
+
+if [ -z "$session" ] || [ "${#session}" -gt 64 ]; then
+    echo "invalid session" >&2
+    exit 64
+fi
+
+if [ -z "$task" ]; then
+    task=$(ls "$root/queue/$session" 2>/dev/null | sort | head -1)
+fi
+
+if [ -z "$task" ]; then
+    exit 0
+fi
+
+if "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
+        --unit="mail-agent-$session-$(date +%s%N)" \
+        flock --close "$root/lock/$session" "$HOME/bin/mail-agent-run" "$session"; then
+    exit 0
+fi
+
+# An existing worker can consume the message even if this wakeup failed.
+exec 9> "$root/lock/$session"
+
+if ! flock -n 9; then
+    exit 0
+fi
+
+message="$root/queue/$session/$task"
+
+if [ ! -f "$message" ]; then
+    exit 0
+fi
+
+record="$root/tasks/$session/$task"
+
+umask 077
+mkdir -p "$record"
+printf '{"state":"failed","reason":"scheduling"}\n' > "$record/status.json"
+printf "%s\n" "Task scheduling failed. Reply to request another turn." > "$record/reply.md"
+MAIL_AGENT="$(mhdr -h x-mail-agent "$message")" "$HOME/bin/mail-agent-reply" \
+    "$session" "$message" "$record/reply.md" > /dev/null
+rm -f "$message"

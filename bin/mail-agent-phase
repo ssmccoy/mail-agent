@@ -1,0 +1,59 @@
+#!/bin/sh
+# Execute one versioned request through an approved driver, without sending mail.
+# The caller supplies trusted workspace/output paths separately from the request.
+# Usage: mail-agent-phase <work> <out>
+
+set -eu
+
+if [ "$#" -ne 2 ] || [ ! -d "$1/repo" ] || [ ! -d "$2" ]; then
+    echo "usage: mail-agent-phase <work> <out>" >&2
+    exit 64
+fi
+
+work=$1
+out=$2
+request="$out/request.json"
+
+if [ ! -f "$request" ] || [ -L "$request" ] ||
+   [ "$(stat -c %s -- "$request")" -gt 65536 ]; then
+    echo "invalid phase request file" >&2
+    exit 65
+fi
+
+jq -e '
+    keys == ["driver","effort","mode","model","schema","task"] and
+    .schema == 1 and
+    (.task | type == "string" and test("^[A-Za-z0-9_-]{1,64}$")) and
+    (.driver | type == "string" and test("^[a-z][a-z0-9_-]{0,63}$")) and
+    (.mode | IN("investigate","plan","execute","research")) and
+    (.model | type == "string" and
+        (. == "" or . == "-" or test("^[A-Za-z0-9_][A-Za-z0-9_./:-]{0,127}$"))) and
+    (.effort | IN("","low","medium","high","xhigh","max"))
+' "$request" > /dev/null || exit 65
+
+driver=$(jq -r .driver "$request")
+mode=$(jq -r .mode "$request")
+model=$(jq -r .model "$request")
+effort=$(jq -r .effort "$request")
+
+if ! awk -v driver="$driver" '$2 == driver { found = 1 }
+        END { exit !found }' "$HOME/.config/mail-agent/agents"; then
+    echo "driver is not configured: $driver" >&2
+    exit 65
+fi
+
+if [ ! -f "$out/prompt" ] || [ -L "$out/prompt" ]; then
+    echo "missing phase prompt" >&2
+    exit 65
+fi
+
+status=0
+
+MAIL_AGENT_MODE="$mode" "$HOME/bin/mail-agent-$driver" \
+    "$work" "$out" "$out/prompt" "$mode" "$model" "$effort" || status=$?
+
+jq --argjson status "$status" \
+    '{schema:1,task:.task,status:$status}' "$request" > "$out/outcome.json.new"
+mv "$out/outcome.json.new" "$out/outcome.json"
+
+exit "$status"

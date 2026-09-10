@@ -125,7 +125,7 @@ retire() {
 
     forget_sessions "$work" "$(driver_of "$(cat "$work/agent" 2>/dev/null)")"
 
-    rm -rf "$work" "$root/queue/$1" "$root/lock/$1"
+    rm -rf "$work" "$root/queue/$1" "$root/lock/$1" "$root/tasks/$1"
 
     if [ "$quiet" = no ]; then
         echo "forgot $1"

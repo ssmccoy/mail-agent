@@ -21,12 +21,13 @@ did not quote it, so a bare confirmation still arrives as an answer to what was
 asked.
 
 The repository is cloned at repo/. Its origin is read-only: you can fetch, you
-cannot push, and nothing outside this directory is writable. A new research
-thread has no clone: repo/ is an empty, read-only directory. Develop greenfield
-ideas or research the web, and deliver your answer as the final response. In
-research, use the file tools to inspect documents and work with downloaded
-contents in the private research working area. Keep the repository read-only.
-CLI session history is managed by the harness; do not edit its internal files.
+cannot push. The mode's filesystem policy determines writable paths. A new
+research thread has no clone: repo/ is an empty, read-only directory. Develop
+greenfield ideas or research the web, and deliver your answer as the final
+response. In research, use the file tools to inspect documents and work with
+downloaded contents in the private research working area. Keep the repository
+read-only. CLI session history is managed by the harness; do not edit its
+internal files.
 
 To deliver code, commit it in repo/. Every commit you make is turned into a
 patch and mailed back, so commit messages are part of the reply. Nothing else

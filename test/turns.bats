@@ -58,22 +58,30 @@ load helper
     [ "$(cat "$case_root/attachments")" = "example.txt: attachment contents" ]
 }
 
-@test "retry retains mail and notifies once until success" {
+@test "driver failures consume the task without automatic retries" {
     new_repository
     message "$queue/001"
     printf '75\n' > "$case_root/status"
     run_turn
     run_turn
 
-    [ -f "$queue/001" ]
-    [ -f "$work/notified" ]
+    [ ! -e "$queue/001" ]
     [ "$(mail_count)" -eq 1 ]
-    printf '0\n' > "$case_root/status"
+    [ "$(jq -r .state "$agent_root/tasks/$session/001/status.json")" = failed ]
+    [ "$(grep -c "$work" "$case_root/driver-arguments")" -eq 1 ]
+}
+
+@test "an interrupted task is reported without executing the agent again" {
+    new_repository
+    message "$queue/001"
+    mkdir -p "$agent_root/tasks/$session/001"
+    printf '{"state":"running"}\n' > "$agent_root/tasks/$session/001/status.json"
     run_turn
 
+    [ ! -e "$case_root/driver-arguments" ]
     [ ! -e "$queue/001" ]
-    [ ! -e "$work/notified" ]
-    [ "$(mail_count)" -eq 2 ]
+    [ "$(mail_count)" -eq 1 ]
+    mshow -R "$case_root"/outgoing/* | grep -q 'existing execution record'
 }
 
 @test "timeout consumes the message without recording a successful turn" {
@@ -430,4 +438,16 @@ load helper
     run_turn
 
     [ ! -f "$case_root/git-trace" ] || ! grep -F "status --porcelain" "$case_root/git-trace"
+}
+
+@test "new shared clones use group permissions without source hardlinks" {
+    new_repository
+    message "$queue/001"
+    run_turn
+    shared=$(find "$agent_root/repos" -mindepth 1 -maxdepth 1 -type d)
+    commit=$(invoke git -C "$source_repo" rev-parse HEAD)
+    object="objects/${commit:0:2}/${commit:2}"
+
+    [ "$(invoke git -C "$shared" config core.sharedRepository)" = 0660 ]
+    [ "$(stat -c %i "$shared/$object")" != "$(stat -c %i "$source_repo/.git/$object")" ]
 }
