@@ -21,6 +21,7 @@ invoke_driver() {
 
 @test "all drivers convert fixture events and preserve prompts" {
     prepare_driver
+    mkdir "$case_root/attachments"
 
     for driver in claude codex pi; do
         rm -f "$work/agent-session"
@@ -30,6 +31,7 @@ invoke_driver() {
         [ "$(cat "$case_root/result/reply.md")" = "Inspection complete." ]
         [ "$(cat "$work/agent-session")" = "fixture-session" ]
         cmp "$case_root/prompt" "$case_root/cli-prompt"
+        grep -Fx "$case_root/attachments" "$case_root/launcher-arguments"
         [ -s "$case_root/result/steps.txt" ]
         [ -s "$case_root/result/usage.html" ]
 

@@ -28,6 +28,8 @@ if [ -z "$mode" ]; then
     exit 64
 fi
 
+attachments=$(dirname "$prompt")/attachments
+
 # A model of "-", or none, leaves the CLI's own default alone.
 if [ -n "$model" ] && [ "$model" != "-" ]; then
     with_model="--model $model"
@@ -78,6 +80,12 @@ else
     with_repo=""
 fi
 
+if [ -d "$attachments" ]; then
+    with_attachments="-r $attachments"
+else
+    with_attachments=""
+fi
+
 profile() {
     case $1 in
         research) echo mail-agent-claude-research ;;
@@ -118,6 +126,7 @@ fi
 
     PATH="$HOME/.proto/shims:$HOME/.proto/bin:/usr/bin" timeout "$limit" "$HOME/bin/landlock" \
         -c "$HOME/.config/landlock/$(profile "$access").cfg" $with_repo \
+        $with_attachments \
         "$HOME/.local/bin/claude" -p --output-format stream-json --verbose \
         --settings "$HOME/.config/mail-agent/claude-settings.json" \
         --append-system-prompt-file "$HOME/.config/mail-agent/instructions.md" \

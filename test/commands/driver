@@ -8,6 +8,17 @@ prompt=$3
 printf "%s\n" "$@" >> "$CASE_ROOT/driver-arguments"
 cat "$prompt" >> "$CASE_ROOT/prompts"
 
+if [ -f "$CASE_ROOT/inspect-attachments" ]; then
+    attachments=$(sed -n 's/^Attachments are available in \(.*\):$/\1/p' "$prompt")
+
+    find "$attachments" -maxdepth 1 -type f -exec sh -c '
+        for attachment do
+            printf "%s: " "${attachment##*/}"
+            cat "$attachment"
+        done
+    ' sh {} + > "$CASE_ROOT/attachments"
+fi
+
 if [ -f "$CASE_ROOT/status" ]; then
     status=$(cat "$CASE_ROOT/status")
 

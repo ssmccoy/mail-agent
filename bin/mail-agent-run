@@ -158,6 +158,20 @@ message_body() {
             }'
 }
 
+message_attachments() {
+    destination=$2
+
+    mkdir -p "$destination"
+
+    if ! (cd "$destination" && mshow -x "$1" </dev/null); then
+        return 1
+    fi
+
+    if [ -n "$(find "$destination" -maxdepth 1 -type f -print -quit)" ]; then
+        printf "\nAttachments are available in %s:\n" "$destination"
+    fi
+}
+
 permission_mode() {
     case $1 in
         execute) echo bypassPermissions ;;
@@ -510,6 +524,7 @@ fi
     printf "\n"
 
     message_body "$message"
+    message_attachments "$message" "$scratch/attachments"
 } > "$scratch/prompt"
 
 if [ -f "$work/started" ]; then

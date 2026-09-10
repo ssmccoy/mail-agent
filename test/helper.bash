@@ -61,6 +61,22 @@ message() {
         "$subject" "$body" > "$destination"
 }
 
+message_with_attachment() {
+    local destination="$1"
+    local attachment="$case_root/attached.txt"
+
+    printf "attachment contents\n" > "$attachment"
+    {
+        printf "From: Sender <sender@example.invalid>\n"
+        printf "To: test+fixture@example.invalid\n"
+        printf "Subject: sample: example\n"
+        printf "Message-Id: <incoming@example.invalid>\n"
+        printf "X-Mail-Agent: fixture\n\n"
+        printf "Please inspect the attachment.\n"
+        printf "#text/plain %s>example.txt\n" "$attachment"
+    } | mmime > "$destination"
+}
+
 run_turn() {
     invoke "$case_home/bin/mail-agent-run" "$session"
 }

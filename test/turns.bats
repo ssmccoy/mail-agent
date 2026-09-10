@@ -44,6 +44,20 @@ load helper
     ! grep -q 'Old trailing text\|Sender wrote:' "$case_root/prompts"
 }
 
+@test "named attachments are available to the agent" {
+    new_repository
+    message_with_attachment "$queue/001"
+    touch "$case_root/inspect-attachments"
+
+    run run_turn
+
+    [ "$status" -eq 0 ]
+    attachments=$(sed -n 's/^Attachments are available in \(.*\):$/\1/p' \
+        "$case_root/prompts")
+    [[ "$attachments" = "$case_root/tmp/"*/attachments ]]
+    [ "$(cat "$case_root/attachments")" = "example.txt: attachment contents" ]
+}
+
 @test "retry retains mail and notifies once until success" {
     new_repository
     message "$queue/001"
