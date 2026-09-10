@@ -20,8 +20,9 @@ agent; execute turns can modify the thread’s worktree.
 ## Requirements
 
 Use Linux with Landlock support and a launcher that reads the supplied `.cfg`
-profiles. The profiles enable `best-effort`; without kernel support, filesystem
-restrictions may not be enforced.
+profiles. Execute profiles currently enable `best-effort`; without kernel
+support, filesystem restrictions may not be enforced. Investigate and plan
+profiles require enforcement.
 
 | Dependency                              | Purpose                                        |
 |-----------------------------------------|------------------------------------------------|
@@ -121,9 +122,11 @@ Place directives before the request. The default mode is `!investigate`.
 | `!research`    | Disabled         | Findings and source links   |
 
 Modes can change between messages in a thread. For example, investigate a
-problem, request a plan, then send `!execute` to implement it. Claude uses its
-permission mode to disable edits. Codex uses a Landlock profile with read-only
-access to the worktree.
+problem, request a plan, then send `!execute` to implement it. All three
+drivers use strict Landlock profiles with read-only access to the worktree and
+shared Git storage outside execute mode. Claude also uses its CLI permission
+mode. Required Landlock restrictions must be supported; these profiles do not
+enable best-effort enforcement.
 
 New research threads run in an empty directory without a repository, even if
 the subject matches a configured project. They use network access to research

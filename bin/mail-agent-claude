@@ -89,7 +89,8 @@ fi
 profile() {
     case $1 in
         research) echo mail-agent-claude-research ;;
-        *)        echo mail-agent-claude ;;
+        execute) echo mail-agent-claude ;;
+        *)       echo mail-agent-claude-ro ;;
     esac
 }
 

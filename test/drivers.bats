@@ -223,3 +223,28 @@ invoke_driver() {
         grep -F "mail-agent-$driver-research.cfg" "$case_root/launcher-arguments"
     done
 }
+
+@test "non-execute profiles protect the checkout and shared Git storage" {
+    for driver in claude codex pi; do
+        profile="$project_root/landlock/mail-agent-$driver-ro.cfg"
+
+        [ -f "$profile" ]
+        grep -Fx "rox ." "$profile"
+        grep -Fx "ro ~/mail/.agent/repos" "$profile"
+        ! grep -Eq "^best-effort|^rwx /proc|^rw[x]? ~/mail/.agent/repos" "$profile"
+    done
+}
+
+@test "Claude uses a filesystem read-only profile in investigate and plan" {
+    prepare_driver
+
+    for mode in investigate plan; do
+        invoke_driver claude "$mode"
+
+        grep -F "mail-agent-claude-ro.cfg" "$case_root/launcher-arguments"
+    done
+
+    invoke_driver claude execute
+
+    grep -F "mail-agent-claude.cfg" "$case_root/launcher-arguments"
+}
