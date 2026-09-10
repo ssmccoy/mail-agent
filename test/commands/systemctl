@@ -1,0 +1,53 @@
+#!/bin/sh
+# Offline manager: run the real phase protocol with no privileged operations.
+set -eu
+
+for argument; do unit=$argument; done
+case " $* " in
+    *" show "*)
+        if [ -f "$CASE_ROOT/system-busy" ]; then printf 'active\n'; else printf 'inactive\n'; fi
+        exit 0 ;;
+    *" start "*) ;;
+    *) exit 64 ;;
+esac
+
+[ ! -f "$CASE_ROOT/system-fail" ] || exit 1
+policy=${unit#mail-agent-}
+policy=${policy%@*}
+session=${unit#*@}
+session=${session%.service}
+configuration=$MAIL_AGENT_SYSTEM_CONFIG
+STATE_DIRECTORY="$CASE_ROOT/private/$session"
+RUNTIME_DIRECTORY="$CASE_ROOT/runtime/$session"
+MAIL_AGENT_SYSTEM_INPUT="$MAIL_AGENT_SYSTEM_SUBMISSIONS/$session"
+MAIL_AGENT_SYSTEM_OUTPUT="$MAIL_AGENT_SYSTEM_RESULTS/$session"
+MAIL_AGENT_SYSTEM_REQUEST="$MAIL_AGENT_SYSTEM_INPUT/request.json"
+MAIL_AGENT_SYSTEM_SESSION=$session
+MAIL_AGENT_SYSTEM_DRIVER=$(jq -r --arg policy "$policy" '.policies[$policy].driver' "$configuration")
+MAIL_AGENT_SYSTEM_MODE=$(jq -r --arg policy "$policy" '.policies[$policy].mode' "$configuration")
+MAIL_AGENT_SYSTEM_PROJECT=$(jq -r --arg policy "$policy" '.policies[$policy].project' "$configuration")
+MAIL_AGENT_SYSTEM_SHARED=$(jq -r --arg policy "$policy" '.policies[$policy].shared' "$configuration")
+MAIL_AGENT_AUTH="$CASE_ROOT/auth.json"
+MAIL_AGENT_SHARED_STATE="$CASE_ROOT/shared-configuration"
+INVOCATION_ID=$(jq -r .request "$MAIL_AGENT_SYSTEM_REQUEST")
+MAIL_AGENT_OUTPUT_DIR=$RUNTIME_DIRECTORY
+MAIL_AGENT_SYSTEM_RESULT_GROUP=$(id -g)
+export MAIL_AGENT_SYSTEM_RESULT_GROUP
+
+export STATE_DIRECTORY RUNTIME_DIRECTORY INVOCATION_ID MAIL_AGENT_OUTPUT_DIR
+export MAIL_AGENT_SYSTEM_INPUT MAIL_AGENT_SYSTEM_OUTPUT MAIL_AGENT_SYSTEM_REQUEST MAIL_AGENT_SYSTEM_SESSION
+export MAIL_AGENT_SYSTEM_DRIVER MAIL_AGENT_SYSTEM_MODE MAIL_AGENT_SYSTEM_PROJECT MAIL_AGENT_SYSTEM_SHARED
+export MAIL_AGENT_AUTH MAIL_AGENT_SHARED_STATE
+
+mkdir -p "$STATE_DIRECTORY" "$RUNTIME_DIRECTORY" "$MAIL_AGENT_SYSTEM_OUTPUT"
+status=0
+MAIL_AGENT_SYSTEM_STAGE=run "$HOME/bin/mail-agent-system-phase" || status=$?
+result=success
+if [ "$status" -ne 0 ]; then result=exit-code; fi
+MAIL_AGENT_SYSTEM_STAGE=export SERVICE_RESULT="$result" "$HOME/bin/mail-agent-system-phase" || exit $?
+if [ -f "$CASE_ROOT/corrupt-export" ]; then
+    request=$(jq -r .request "$MAIL_AGENT_SYSTEM_REQUEST")
+    rm -f "$MAIL_AGENT_SYSTEM_OUTPUT/$request/reply.md"
+    ln -s "$CASE_ROOT/secret" "$MAIL_AGENT_SYSTEM_OUTPUT/$request/reply.md"
+fi
+exit "$status"

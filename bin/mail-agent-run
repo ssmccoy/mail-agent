@@ -38,11 +38,18 @@ if [ "$(printf "%s" "$selection" | jq -r .state)" = paused ]; then
     exit 0
 fi
 
-if [ "$(printf "%s" "$selection" | jq -r .state)" != active ] ||
-   [ "$(printf "%s" "$selection" | jq -r .backend)" != legacy ]; then
-    echo "the selected execution backend is not installed" >&2
+backend=$(printf "%s" "$selection" | jq -r .backend)
+if [ "$(printf "%s" "$selection" | jq -r .state)" != active ]; then
+    echo "the stream is not active" >&2
     exit 78
 fi
+if [ "$backend" = system ]; then
+    "$HOME/bin/mail-agent-system" wait "$session" || exit $?
+fi
+
+MAIL_AGENT_BACKEND=$backend
+
+export MAIL_AGENT_BACKEND
 
 # The subject names a project up to its first colon; the map turns that
 # into a repository. A reply or a forward puts its own word in front, so
@@ -198,6 +205,22 @@ reply() {
         "$session" "$2" "$1")
 }
 
+system_operation() {
+    operation=$1
+    destination=$2
+    requested_branch=${3:-}
+
+    mkdir -p "$destination"
+    if ! MAIL_AGENT_DRIVER="$driver" "$HOME/bin/mail-agent-system" \
+            "$operation" "$work" "$destination" "$requested_branch" 2> "$scratch/stderr"; then
+        printf "The isolated phase failed and will not be retried.\n\n%s\n" \
+            "$(tail -3 "$scratch/stderr")" > "$scratch/body"
+        reply "$scratch/body" "$message"
+        rm -f "$message"
+        exit 0
+    fi
+}
+
 message=$(ls "$queue" 2>/dev/null | sort | head -1)
 
 if [ -z "$message" ]; then
@@ -264,55 +287,58 @@ if [ ! -d "$work" ]; then
     printf "%s\n" "$agent" > "$work/agent"
     mhdr -h subject "$message" > "$work/subject"
 
-    # One clone per repository, shared by every thread on it, with a
-    # worktree apiece. A clone of its own costs each thread the whole
-    # object store to hold a checkout a fraction of its size.
-    shared=$(shared_clone "$repo")
+    if [ "$backend" = legacy ]; then
+        # One clone per repository, shared by every thread on it, with a
+        # worktree apiece. A clone of its own costs each thread the whole
+        # object store to hold a checkout a fraction of its size.
+        shared=$(shared_clone "$repo")
 
-    if [ ! -d "$shared" ]; then
-        git clone --quiet --bare --no-hardlinks -c core.sharedRepository=0660 \
-            "$repo" "$shared"
-        git -C "$shared" config remote.origin.fetch \
-            "+refs/heads/*:refs/remotes/origin/*"
+        if [ ! -d "$shared" ]; then
+            git clone --quiet --bare --no-hardlinks -c core.sharedRepository=0660 \
+                "$repo" "$shared"
+            git -C "$shared" config remote.origin.fetch \
+                "+refs/heads/*:refs/remotes/origin/*"
 
-        # A branch written by someone else is held in the source as a
-        # remote-tracking ref rather than a branch, so fetching heads
-        # alone hides every branch the sender has not checked out.
-        git -C "$shared" config --add remote.origin.fetch \
-            "+refs/remotes/origin/*:refs/remotes/upstream/*"
+            # A branch written by someone else is held in the source as a
+            # remote-tracking ref rather than a branch, so fetching heads
+            # alone hides every branch the sender has not checked out.
+            git -C "$shared" config --add remote.origin.fetch \
+                "+refs/remotes/origin/*:refs/remotes/upstream/*"
+        fi
+
+        # A bare clone has no remote-tracking refs until it fetches, and no
+        # default branch recorded until those exist.
+        git -C "$shared" fetch --quiet --prune origin
+        git -C "$shared" remote set-head origin --auto > /dev/null 2>&1
+
+        branch=$(message_branch "$message")
+
+        if [ -z "$branch" ]; then
+            branch=$(git -C "$shared" symbolic-ref --short refs/remotes/origin/HEAD \
+                2>/dev/null | sed "s|^origin/||")
+        fi
+
+        start=$(branch_ref "$shared" "$branch")
+
+        if [ -z "$start" ]; then
+            printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
+                > "$scratch/body"
+
+            reply "$scratch/body" "$message"
+            rm -rf "$work"
+            rm -f "$message"
+            exit 0
+        fi
+
+        # The thread commits on a branch of its own, named for the session,
+        # so two threads on one branch do not contend for it.
+        git -C "$shared" worktree add --quiet -b "mail/$session" \
+            "$work/repo" "$start"
+
+        printf "%s\n" "$branch" > "$work/branch"
+        git -C "$work/repo" rev-parse HEAD > "$work/base"
+
     fi
-
-    # A bare clone has no remote-tracking refs until it fetches, and no
-    # default branch recorded until those exist.
-    git -C "$shared" fetch --quiet --prune origin
-    git -C "$shared" remote set-head origin --auto > /dev/null 2>&1
-
-    branch=$(message_branch "$message")
-
-    if [ -z "$branch" ]; then
-        branch=$(git -C "$shared" symbolic-ref --short refs/remotes/origin/HEAD \
-            2>/dev/null | sed "s|^origin/||")
-    fi
-
-    start=$(branch_ref "$shared" "$branch")
-
-    if [ -z "$start" ]; then
-        printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
-            > "$scratch/body"
-
-        reply "$scratch/body" "$message"
-        rm -rf "$work"
-        rm -f "$message"
-        exit 0
-    fi
-
-    # The thread commits on a branch of its own, named for the session,
-    # so two threads on one branch do not contend for it.
-    git -C "$shared" worktree add --quiet -b "mail/$session" \
-        "$work/repo" "$start"
-
-    printf "%s\n" "$branch" > "$work/branch"
-    git -C "$work/repo" rev-parse HEAD > "$work/base"
 
     # A thread with no fork above it is its own root; a fork inherits this
     # below. Deletion retires everything that shares a root.
@@ -332,6 +358,21 @@ if [ ! -f "$work/project" ] && [ ! -f "$work/research" ]; then
 fi
 
 repo=$(cat "$work/project" 2>/dev/null)
+
+if [ "$backend" = system ] && [ ! -f "$work/prepared" ]; then
+    initial_branch=$(message_branch "$message")
+    if [ -z "$initial_branch" ]; then
+        initial_branch=$(cat "$work/branch" 2>/dev/null)
+    fi
+    system_operation prepare "$scratch/prepared" "$initial_branch"
+    for field in base branch; do
+        if [ -f "$scratch/prepared/$field" ]; then
+            cp "$scratch/prepared/$field" "$work/$field"
+        fi
+    done
+    touch "$work/prepared"
+    rm -rf "$work/import-history"
+fi
 
 # A later turn may move the thread to another branch. The patch base
 # moves with it, so a series is always measured from the branch tip the
@@ -375,20 +416,26 @@ if [ -n "$fork" ]; then
     # The fork joins its parent's tree, so deleting either deletes both.
     { cat "$work/root" 2>/dev/null || printf "%s\n" "$session"; } > "$cwork/root"
 
-    # A thread with no repository forks into a directory of its own
-    # rather than a worktree; there is no commit to begin at.
-    if [ -n "$repo" ]; then
-        git -C "$shared" worktree add --quiet -b "mail/$child" \
-            "$cwork/repo" "$parent_commit"
+    if [ "$backend" = system ]; then
+        system_operation history "$scratch/history"
+        cp -a "$scratch/history/history" "$cwork/import-history"
     else
-        mkdir -p "$cwork/repo"
-    fi
+        # A thread with no repository forks into a directory of its own
+        # rather than a worktree; there is no commit to begin at.
+        if [ -n "$repo" ]; then
+            git -C "$shared" worktree add --quiet -b "mail/$child" \
+                "$cwork/repo" "$parent_commit"
+        else
+            mkdir -p "$cwork/repo"
+        fi
 
-    case "$driver" in
-        claude|codex|pi)
-            "$HOME/bin/mail-agent-state" "$driver" "$cwork" "$work" > /dev/null || exit $?
-            ;;
-    esac
+        case "$driver" in
+            claude|codex|pi)
+                "$HOME/bin/mail-agent-state" "$driver" "$cwork" "$work" > /dev/null || exit $?
+                ;;
+        esac
+
+    fi
 
     mkdir -p "$root/queue/$child"
     mv "$message" "$root/queue/$child/$(basename "$message")"
@@ -407,22 +454,29 @@ if [ -n "$fork" ]; then
 fi
 
 if [ -n "$repo" ] && [ -n "$branch" ] && [ "$branch" != "$current" ]; then
-    git -C "$shared" fetch --quiet --prune origin
-
-    start=$(branch_ref "$shared" "$branch")
-
-    if [ -n "$start" ] &&
-       git -C "$work/repo" checkout --quiet -B "mail/$session" "$start"; then
-        printf "%s\n" "$branch" > "$work/branch"
+    if [ "$backend" = system ]; then
+        system_operation branch "$scratch/branch" "$branch"
+        cp "$scratch/branch/base" "$work/base"
+        cp "$scratch/branch/branch" "$work/branch"
         rm -f "$work/mailed"
-        git -C "$work/repo" rev-parse HEAD > "$work/base"
     else
-        printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
-            > "$scratch/body"
+        git -C "$shared" fetch --quiet --prune origin
 
-        reply "$scratch/body" "$message"
-        rm -f "$message"
-        exit 0
+        start=$(branch_ref "$shared" "$branch")
+
+        if [ -n "$start" ] &&
+           git -C "$work/repo" checkout --quiet -B "mail/$session" "$start"; then
+            printf "%s\n" "$branch" > "$work/branch"
+            rm -f "$work/mailed"
+            git -C "$work/repo" rev-parse HEAD > "$work/base"
+        else
+            printf "There is no branch \"%s\" in %s.\n" "$branch" "$repo" \
+                > "$scratch/body"
+
+            reply "$scratch/body" "$message"
+            rm -f "$message"
+            exit 0
+        fi
     fi
 fi
 
@@ -587,7 +641,9 @@ printf "%s %s\n" "$started" "$(cat "$scratch/cost" 2>/dev/null || echo 0)" \
 # the sender cannot see that from the reply alone.
 uncommitted=""
 
-if [ "$mode" = execute ]; then
+if [ "$backend" = system ]; then
+    uncommitted=$(head -20 "$scratch/uncommitted" 2>/dev/null)
+elif [ "$mode" = execute ]; then
     uncommitted=$(git -C "$work/repo" status --porcelain 2>/dev/null | head -20)
 fi
 
@@ -612,19 +668,27 @@ mail_patches() {
     # on three turns mails each commit once rather than mailing the
     # whole series again every time.
     from=$(cat "$work/mailed" 2>/dev/null || cat "$work/base")
-    head=$(git -C "$work/repo" rev-parse HEAD)
+    if [ "$backend" = system ]; then
+        head=$(cat "$scratch/head")
+    else
+        head=$(git -C "$work/repo" rev-parse HEAD)
+    fi
 
     if [ "$head" = "$from" ]; then
         return
     fi
 
-    git -C "$work/repo" format-patch --quiet --thread \
-        --in-reply-to="$sent" \
-        --from="$(printf "%s" "$agent" | sed "s/^./\\U&/") <$user+$agent@$fqdn>" \
-        --to="$(mhdr -h from "$message")" \
-        -o "$scratch/patches" "$from..HEAD"
+    if [ "$backend" = legacy ]; then
+        git -C "$work/repo" format-patch --quiet --thread \
+            --in-reply-to="$sent" \
+            --from="$(printf "%s" "$agent" | sed "s/^./\\U&/") <$user+$agent@$fqdn>" \
+            --to="$(mhdr -h from "$message")" \
+            -o "$scratch/patches" "$from..HEAD"
+
+    fi
 
     for patch in "$scratch"/patches/*.patch; do
+        [ -f "$patch" ] || continue
         sed '1,/^$/d; /^---$/,$d' "$patch" > "$scratch/commit-message"
 
         if ! pandoc -f gfm -t gfm+pipe_tables --wrap=auto --columns="$wrap" \
@@ -642,7 +706,18 @@ mail_patches() {
             # format-patch writes an mbox, whose From_ line is not a
             # header and would be read as one. Format only the commit
             # message; preserve the headers, diffstat, and diff.
-            sed -n '1d; p; /^$/q' "$patch"
+            if [ "$backend" = system ]; then
+                printf "From: %s <%s+%s@%s>\n" "$agent" "$user" "$agent" "$fqdn"
+                printf "To: %s\n" "$(mhdr -h from "$message")"
+                printf "Subject: %s\n" "$(mhdr -h subject "$patch" | tr -d '\r\n')"
+                printf "Date: %s\n" "$(date -R)"
+                printf "Message-ID: <%s@%s>\n" "$(new_uuid)" "$fqdn"
+                printf "In-Reply-To: %s\nReferences: %s\n" "$sent" "$sent"
+                printf "Content-Type: text/plain; charset=UTF-8\n\n"
+                printf "From: %s\n\n" "$(mhdr -h from "$patch" | tr -d '\r\n')"
+            else
+                sed -n '1d; p; /^$/q' "$patch"
+            fi
             cat "$scratch/wrapped-message"
             sed -n '/^---$/,$p' "$patch"
         } | "${MAIL_AGENT_SENDMAIL:-sendmail}" -t
@@ -655,10 +730,15 @@ mail_patches() {
 # reply rather than staying on this host.
 : > "$scratch/plans"
 
-if [ -d "$work/harness/$driver/plans" ]; then
+plan_directory="$work/harness/$driver/plans"
+if [ "$backend" = system ]; then
+    plan_directory="$scratch/plans-export"
+fi
+
+if [ -d "$plan_directory" ]; then
     # Keep the generated name: it is what the plan is called on disk,
     # so the attachment and the file can be told to be the same one.
-    find "$work/harness/$driver/plans" -name "*.md" -newer "$scratch/mark" | sort |
+    find "$plan_directory" -name "*.md" -newer "$scratch/mark" | sort |
         while read -r plan; do
             name=$(basename "$plan")
 
@@ -726,7 +806,11 @@ mail_patches
 commit=-
 
 if [ -n "$repo" ]; then
-    commit=$(git -C "$work/repo" rev-parse HEAD 2>/dev/null || echo -)
+    if [ "$backend" = system ]; then
+        commit=$(cat "$scratch/head")
+    else
+        commit=$(git -C "$work/repo" rev-parse HEAD 2>/dev/null || echo -)
+    fi
 fi
 
 printf "%s %s %s\n" "$sent" "$(cat "$work/agent-session" 2>/dev/null)" \

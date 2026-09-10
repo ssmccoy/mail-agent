@@ -35,7 +35,18 @@ printf '{"state":"running"}\n' > "$record/status.json"
 sync "$record/request.json" "$record/status.json" "$record" \
     "$record/.." "$record/../.." "$record/../../.."
 
-"$HOME/bin/mail-agent-phase" "$work" "$out" || status=$?
+if [ "${MAIL_AGENT_BACKEND:-legacy}" = system ]; then
+    "$HOME/bin/mail-agent-system" turn "$work" "$out" || status=$?
+    if [ "$status" -eq 0 ]; then
+        for field in agent-session events.jsonl commits; do
+            if [ -f "$out/$field" ]; then
+                cp "$out/$field" "$work/$field"
+            fi
+        done
+    fi
+else
+    "$HOME/bin/mail-agent-phase" "$work" "$out" || status=$?
+fi
 
 # Preserve results for inspection even if mail composition is interrupted.
 for name in outcome.json reply.md cost result steps.txt usage.html reasoning.html stderr; do

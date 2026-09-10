@@ -46,11 +46,22 @@ fi
 
 backend=$(printf "%s" "$selection" | jq -r '.backend // empty')
 
+available=no
+case "$backend" in
+    legacy) available=yes ;;
+    system)
+        if [ -f "${MAIL_AGENT_SYSTEM_CONFIG:-/etc/mail-agent/system.json}" ] &&
+           [ -f "${MAIL_AGENT_SYSTEM_QUALIFIED:-/etc/mail-agent/qualified}" ]; then
+            available=yes
+        fi
+        ;;
+esac
+
 # Only an installed backend may execute a selected stream. Never fall back.
 if [ "$(printf "%s" "$selection" | jq -r .state)" = active ] &&
-   [ "$backend" = legacy ] && "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
+   [ "$available" = yes ] && "${MAIL_AGENT_SYSTEMD_RUN:-systemd-run}" --user --collect --quiet \
         --unit="mail-agent-$session-$(date +%s%N)" \
-        flock --close "$root/lock/$session" "$HOME/bin/mail-agent-run" "$session"; then
+        flock --close "$root/lock/$session" "$HOME/bin/mail-agent-admit" "$session"; then
     exit 0
 fi
 

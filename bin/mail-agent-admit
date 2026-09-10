@@ -1,0 +1,66 @@
+#!/bin/sh
+# Limit concurrent streams, retaining reservations for orphaned system services.
+# Usage: mail-agent-admit <session>
+
+set -eu
+
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+root="$HOME/mail/.agent"
+
+claim() {
+    slot=$1
+    session=$2
+    previous=$(cat "$slot.owner" 2>/dev/null || true)
+
+    if [ -n "$previous" ] && [ "$previous" != "$session" ] &&
+       [ -f "$root/streams/$previous.json" ] &&
+       [ "$(jq -r .backend "$root/streams/$previous.json")" = system ]; then
+        busy=0
+        "$MAIL_AGENT_BIN/mail-agent-system" busy "$previous" || busy=$?
+        [ "$busy" -eq 1 ] || return 200
+    fi
+
+    printf '%s\n' "$session" > "$slot.owner.new"
+    sync "$slot.owner.new"
+    mv "$slot.owner.new" "$slot.owner"
+    sync "$root/slots"
+    exec "$MAIL_AGENT_BIN/mail-agent-run" "$session"
+}
+
+if [ "$#" -eq 3 ] && [ "$1" = --claim ]; then
+    case "$2" in "$root/slots/"*) ;; *) exit 64 ;; esac
+    printf '%s\n' "$3" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+    claim "$2" "$3"
+    exit $?
+fi
+
+[ "$#" -eq 1 ] || exit 64
+printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+
+session=$1
+limit=$(cat "$MAIL_AGENT_CONFIG/concurrency" 2>/dev/null || echo 0)
+
+case "$limit" in ""|*[!0-9]*) exit 78 ;; esac
+[ "$limit" -le 1024 ] || exit 78
+
+if [ "$limit" -eq 0 ]; then
+    exec "$MAIL_AGENT_BIN/mail-agent-run" "$session"
+fi
+
+umask 077
+mkdir -p "$root/slots"
+slot=1
+
+while [ "$slot" -le "$limit" ]; do
+    status=0
+    flock --close --nonblock --conflict-exit-code 200 "$root/slots/$slot" \
+        "$MAIL_AGENT_BIN/mail-agent-admit" --claim "$root/slots/$slot" "$session" || status=$?
+    if [ "$status" -ne 200 ]; then
+        exit "$status"
+    fi
+    slot=$((slot + 1))
+done
+
+# Admission is deferred; the queue remains available to the scheduling timer.
+exit 0

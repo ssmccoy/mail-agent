@@ -109,6 +109,12 @@ retire() {
         return
     fi
 
+    if [ "$("$HOME/bin/mail-agent-stream" show "$1" | jq -r .backend)" = system ]; then
+        rm -rf "$root/queue/$1"
+        complain "retired $1; private state requires administrative retention cleanup"
+        return
+    fi
+
     # A worktree is registered with the clone it came from, so removing
     # the directory alone leaves the registration behind.
     if [ -f "$work/repo/.git" ]; then

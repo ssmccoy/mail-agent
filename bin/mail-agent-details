@@ -50,6 +50,7 @@ fi
 
 selection=$("$HOME/bin/mail-agent-stream" show "$session") || exit $?
 admission=$(printf "%s" "$selection" | jq -r .state)
+backend=$(printf "%s" "$selection" | jq -r .backend)
 
 if [ "$admission" != active ]; then
     state=$admission
@@ -86,8 +87,11 @@ if [ -f "$work/cost" ]; then
     awk '{ printf "  %s  $%.2f\n", substr($1, 1, 19), $2 }' "$work/cost"
 fi
 
-commits=$(git -C "$work/repo" log --oneline \
-    "$(cat "$work/base" 2>/dev/null)..HEAD" 2>/dev/null)
+if [ "$backend" = system ]; then
+    commits=$(cat "$work/commits" 2>/dev/null)
+else
+    commits=$(git -C "$work/repo" log --oneline "$(cat "$work/base" 2>/dev/null)..HEAD" 2>/dev/null)
+fi
 
 if [ -n "$commits" ]; then
     printf "\ncommits since base\n"
@@ -104,7 +108,7 @@ fi
 records="$work/events.jsonl"
 
 # Turns older than the kept stream are still in Claude's transcript.
-if [ ! -f "$records" ] && [ "$name" != codex ]; then
+if [ "$backend" = legacy ] && [ ! -f "$records" ] && [ "$name" != codex ]; then
     records=$(ls "$agent"/claude/projects/*/"$session.jsonl" 2>/dev/null | head -1)
 fi
 

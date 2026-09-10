@@ -98,6 +98,11 @@ case "$operation" in
     pause|resume|retire)
         exec 9> "$root/lock/$session"
         flock -n 9 || exit 75
+        if [ -f "$record" ] && [ "$(jq -r .backend "$record")" = system ]; then
+            busy=0
+            "$MAIL_AGENT_BIN/mail-agent-system" busy "$session" || busy=$?
+            [ "$busy" -eq 1 ] || exit 75
+        fi
         ;;
 esac
 

@@ -57,6 +57,10 @@ fi
 session=$(basename "$work")
 name=$(cat "$work/agent" 2>/dev/null)
 records="$work/events.jsonl"
+backend=$("$HOME/bin/mail-agent-stream" show "$session" | jq -r .backend)
+if [ "$backend" = system ] && [ -f "${MAIL_AGENT_SYSTEM_RESULTS:-/var/lib/mail-agent-results}/$session/events.jsonl" ]; then
+    records="${MAIL_AGENT_SYSTEM_RESULTS:-/var/lib/mail-agent-results}/$session/events.jsonl"
+fi
 
 # The alias names the driver; the driver shapes the events and names the
 # step program that reads them. An alias absent from the table is its own
@@ -71,7 +75,7 @@ fi
 # A turn that began before the stream was kept, and any turn of an older
 # thread, is still in Claude's own transcript, named for the session that
 # produced the turn rather than for the thread.
-if [ ! -f "$records" ] && [ "$driver" = claude ]; then
+if [ "$backend" = legacy ] && [ ! -f "$records" ] && [ "$driver" = claude ]; then
     records=$(ls "$agent"/claude/projects/*/"$(cat "$work/agent-session" 2>/dev/null)".jsonl \
         2>/dev/null | head -1)
 fi
@@ -91,6 +95,6 @@ fi
 if [ "$follow" = no ]; then
     jq -r --arg work "$work/" --arg since "" -f "$steps" < "$records" | $PAGER
 else
-    tail -n +1 -f "$records" |
+    tail -n +1 -F "$records" |
         jq -r --unbuffered --arg work "$work/" --arg since "" -f "$steps"
 fi
