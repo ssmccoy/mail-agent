@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prepare one stream's CLI state, importing only its selected transcript.
+# Prepare one stream's CLI state, importing its selected transcript and ancestors.
 # Usage: mail-agent-state <driver> <work> [parent-work]
 
 set -eu
@@ -37,6 +37,51 @@ configuration() {
         if [ -f "$shared/$name" ]; then
             cp --remove-destination "$shared/$name" "$state/$name"
         fi
+    done
+}
+
+# Prefer private transcripts, then the parent stream, then legacy storage.
+codex_transcript() {
+    for directory in "$state" "$origin" "$shared"; do
+        if [ ! -d "$directory/sessions" ]; then
+            continue
+        fi
+
+        transcript=$(find "$directory/sessions" -type f \
+            -name "*-$1.jsonl" -print -quit)
+
+        if [ -n "$transcript" ]; then
+            printf "%s\n" "$transcript"
+            return
+        fi
+    done
+
+    echo "missing Codex transcript: $1" >&2
+    return 65
+}
+
+codex_transcripts() {
+    ancestor=$id
+    visited=" "
+
+    while [ -n "$ancestor" ]; do
+        case "$ancestor" in
+            *[!A-Za-z0-9_-]*) echo "invalid ancestor session" >&2; return 65 ;;
+        esac
+
+        case "$visited" in
+            *" $ancestor "*) echo "cyclic Codex ancestry" >&2; return 65 ;;
+        esac
+
+        visited="$visited$ancestor "
+        transcript=$(codex_transcript "$ancestor") || return $?
+        ancestor=$(jq -r 'select(.type == "session_meta") |
+            .payload.forked_from_id // empty' "$transcript") || return 65
+
+        case "$transcript" in
+            "$state/sessions/"*) ;;
+            *) cp -- "$transcript" "$state/sessions/" ;;
+        esac
     done
 }
 
@@ -94,5 +139,9 @@ case "$driver" in
         ;;
 esac
 
-transcripts
+case "$driver" in
+    codex) codex_transcripts ;;
+    *) transcripts ;;
+esac
+
 printf "%s\n" "$state"

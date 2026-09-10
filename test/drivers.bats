@@ -8,6 +8,13 @@ prepare_driver() {
     cp "$project_root"/test/fixtures/*.jsonl "$case_root/"
     cp "$project_root/test/commands/landlock" "$case_home/bin/landlock"
 
+    mkdir -p "$agent_root/codex/sessions"
+
+    for identifier in parent-session fixture-session; do
+        jq -nc --arg id "$identifier" '{type: "session_meta", payload: {id: $id}}' \
+            > "$agent_root/codex/sessions/rollout-$identifier.jsonl"
+    done
+
     for driver in claude codex pi; do
         cp "$project_root/test/commands/agent" "$case_home/.local/bin/$driver"
     done
@@ -367,12 +374,12 @@ invoke_driver() {
     child="$agent_root/work/22222222-2222-4222-a222-222222222222"
     mkdir -p "$child/repo" "$work/harness/codex/sessions"
     printf 'parent-session\n' > "$child/agent-session"
-    printf 'selected\n' > "$work/harness/codex/sessions/rollout-parent-session.jsonl"
+    printf '{"type":"session_meta","payload":{"id":"parent-session"}}\n' > "$work/harness/codex/sessions/rollout-parent-session.jsonl"
     printf 'unrelated\n' > "$work/harness/codex/sessions/rollout-other-session.jsonl"
     run invoke "$case_home/bin/mail-agent-state" codex "$child" "$work"
 
     [ "$status" -eq 0 ]
-    [ "$(cat "$child/harness/codex/sessions/rollout-parent-session.jsonl")" = selected ]
+    cmp "$work/harness/codex/sessions/rollout-parent-session.jsonl" "$child/harness/codex/sessions/rollout-parent-session.jsonl"
     [ ! -e "$child/harness/codex/sessions/rollout-other-session.jsonl" ]
 }
 
@@ -445,4 +452,50 @@ invoke_driver() {
             'previous == "-w" && $0 == directory { found = 1 }
             { previous = $0 } END { exit !found }' "$case_root/launcher-arguments"
     done
+}
+
+@test "Codex state imports ancestors and repairs an incomplete private history" {
+    prepare_driver
+    shared="$case_home/mail/.agent/codex/sessions/2026/09/10"
+    private="$work/harness/codex/sessions"
+    mkdir -p "$shared" "$private"
+    printf "tip\n" > "$work/agent-session"
+    printf '%s\n' '{"type":"session_meta","payload":{"id":"tip","forked_from_id":"parent"}}' > "$private/rollout-tip.jsonl"
+    printf '%s\n' '{"type":"session_meta","payload":{"id":"parent","forked_from_id":"root"}}' > "$shared/rollout-parent.jsonl"
+    printf '%s\n' '{"type":"session_meta","payload":{"id":"root"}}' > "$shared/rollout-root.jsonl"
+    printf '%s\n' '{"type":"session_meta","payload":{"id":"other"}}' > "$shared/rollout-other.jsonl"
+    run invoke "$case_home/bin/mail-agent-state" codex "$work"
+
+    [ "$status" -eq 0 ]
+    cmp "$shared/rollout-parent.jsonl" "$private/rollout-parent.jsonl"
+    cmp "$shared/rollout-root.jsonl" "$private/rollout-root.jsonl"
+    [ ! -e "$private/rollout-other.jsonl" ]
+
+    child="$agent_root/work/22222222-2222-4222-a222-222222222222"
+    mkdir -p "$child/repo"
+    printf "tip\n" > "$child/agent-session"
+    run invoke "$case_home/bin/mail-agent-state" codex "$child" "$work"
+
+    [ "$status" -eq 0 ]
+    cmp "$private/rollout-tip.jsonl" "$child/harness/codex/sessions/rollout-tip.jsonl"
+    cmp "$private/rollout-parent.jsonl" "$child/harness/codex/sessions/rollout-parent.jsonl"
+    cmp "$private/rollout-root.jsonl" "$child/harness/codex/sessions/rollout-root.jsonl"
+}
+
+@test "Codex state rejects missing ancestors and cyclic ancestry" {
+    prepare_driver
+    private="$work/harness/codex/sessions"
+    mkdir -p "$private"
+    printf "tip\n" > "$work/agent-session"
+    printf '%s\n' '{"type":"session_meta","payload":{"id":"tip","forked_from_id":"missing"}}' > "$private/rollout-tip.jsonl"
+    run invoke "$case_home/bin/mail-agent-state" codex "$work"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"missing Codex transcript: missing"* ]]
+
+    printf '%s\n' '{"type":"session_meta","payload":{"id":"tip","forked_from_id":"tip"}}' > "$private/rollout-tip.jsonl"
+    run invoke "$case_home/bin/mail-agent-state" codex "$work"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cyclic Codex ancestry"* ]]
 }
