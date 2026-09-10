@@ -6,6 +6,11 @@ the home executor. Keep the default `legacy` until the target host passes
 qualification; the repository tests substitute the manager and confinement
 commands and cannot establish kernel enforcement or native CLI compatibility.
 
+For the remaining deployment work and completion criteria, use the [isolation
+handoff checklist]. It distinguishes missing qualification probes from
+implemented migration and covers the separate case of moving sessions between
+machines.
+
 ## Install and qualify
 
 First install the home scripts and library with `make install`. Existing
@@ -266,3 +271,5 @@ Once a project/harness combination is qualified and representative streams have
 continued successfully, set `~/.config/mail-agent/backend` to `system` for new
 streams. Migrate remaining legacy streams individually. Keep the home executor
 installed as long as retained legacy streams or rollback requirements need it.
+
+  [isolation handoff checklist]: isolation-handoff.md
