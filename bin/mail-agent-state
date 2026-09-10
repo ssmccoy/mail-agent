@@ -90,7 +90,7 @@ codex_transcripts() {
 }
 
 transcripts() {
-    if [ -z "$id" ] || [ "$origin" = "$state" ]; then
+    if [ -z "$id" ] || { [ "$origin" = "$state" ] && [ "$driver" != claude ]; }; then
         return
     fi
 
@@ -115,7 +115,7 @@ transcripts() {
     fi
 
     mkdir -p "$destination"
-    find "$source" -type f -name "*$id.jsonl" -exec cp -- {} "$destination/" \;
+    find "$source" -type f -name "*$id.jsonl" ! -path "$destination/*" -exec cp -- {} "$destination/" \;
 }
 
 umask 077

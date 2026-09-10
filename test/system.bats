@@ -166,6 +166,44 @@ system_dispatch_setup() {
     [ ! -e "$queue/001" ]
 }
 
+@test "migration verifies private state and restores subsequent work on rollback" {
+    system_dispatch_setup
+    printf 'legacy\n' > "$case_home/.config/mail-agent/backend"
+    message "$queue/001" $'!execute\nPlease inspect.'
+    run run_turn
+
+    [ "$status" -eq 0 ]
+    legacy_shared=$(sed -n 's|^gitdir: \(.*\)/worktrees/.*|\1|p' "$work/repo/.git")
+    jq --arg shared "$legacy_shared" '.policies.example_codex_execute.shared=$shared' \
+        "$case_root/system.json" > "$case_root/system.new"
+    mv "$case_root/system.new" "$case_root/system.json"
+    printf 'staged\n' > "$work/repo/file"
+    invoke git -C "$work/repo" add file
+    printf 'unstaged\n' >> "$work/repo/file"
+    printf 'ignored\n' > "$work/repo/working-cache"
+    # Fixture drivers produce an ID without a transcript; this test focuses on
+    # repository and index transfer rather than native CLI continuation.
+    rm -f "$work/agent-session"
+    invoke "$case_home/bin/mail-agent-stream" pause "$session"
+    run invoke "$case_home/bin/mail-agent-migrate" apply "$session"
+
+    [ "$status" -eq 0 ]
+    [ "$(jq -r .backend "$agent_root/streams/$session.json")" = system ]
+    [ "$(jq -r .state "$agent_root/streams/$session.json")" = paused ]
+    cmp "$work/repo/file" "$case_root/private/$session/work/repo/file"
+    printf 'private progress\n' >> "$case_root/private/$session/work/repo/file"
+    run invoke "$case_home/bin/mail-agent-migrate" rollback "$session"
+
+    [ "$status" -eq 0 ]
+    [ "$(jq -r .backend "$agent_root/streams/$session.json")" = legacy ]
+    grep -F 'private progress' "$work/repo/file"
+    [ "$(cat "$work/repo/working-cache")" = ignored ]
+    run invoke "$case_home/bin/mail-agent-migrate" apply "$session"
+
+    [ "$status" -eq 0 ]
+    [ "$(jq -r .backend "$agent_root/streams/$session.json")" = system ]
+}
+
 @test "system installation stages strict profiles without changing the home executor" {
     run make -C "$project_root" install-system DESTDIR="$case_root/stage"
 

@@ -6,6 +6,10 @@ set -eu
 
 . "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
 
+if [ "$#" -eq 2 ] && { [ "$1" = apply ] || [ "$1" = rollback ]; }; then
+    exec "$MAIL_AGENT_BIN/mail-agent-transfer" "$@"
+fi
+
 if [ "$#" -ne 2 ] || [ "$1" != inspect ]; then
     echo "usage: mail-agent-migrate inspect <session>" >&2
     exit 64
@@ -165,7 +169,13 @@ inventory "$root/queue/$session" > "$scratch/queue"
 inventory "$root/tasks/$session" > "$scratch/tasks"
 storage > "$scratch/storage"
 
-jq -n --arg session "$session" --argjson selection "$selection" \
+available=false
+if [ -f "${MAIL_AGENT_SYSTEM_CONFIG:-/etc/mail-agent/system.json}" ] &&
+   [ -f "${MAIL_AGENT_SYSTEM_QUALIFIED:-/etc/mail-agent/qualified}" ]; then
+    available=true
+fi
+
+jq -n --argjson available "$available" --arg session "$session" --argjson selection "$selection" \
     --slurpfile metadata "$scratch/metadata" \
     --slurpfile workspace "$scratch/workspace" --slurpfile history "$scratch/history" \
     --slurpfile queue "$scratch/queue" --slurpfile tasks "$scratch/tasks" \
@@ -173,10 +183,10 @@ jq -n --arg session "$session" --argjson selection "$selection" \
     {schema:1,session:$session,backend:$selection.backend,state:$selection.state,
      metadata:($metadata | from_entries),workspace:$workspace[0],history:$history[0],
      queue:$queue[0],tasks:$tasks[0],storage:$storage[0],ready:false,
-     blockers:["system-backend-unavailable",
+     blockers:[(if $available then empty else "system-backend-unavailable" end),
         (if $storage[0].linked_objects > 0 then "shared-object-links" else empty end),
         (if $storage[0].alternates then "git-alternates" else empty end),
         (if $storage[0].worktree_pointer == false then "worktree-registration" else empty end),
         (if ($storage[0].objects.exists // true) == false then "missing-object-store" else empty end),
-        (if ($workspace[0].special + $history[0].special) > 0 then "special-files" else empty end)]}
+        (if ($workspace[0].special + $history[0].special) > 0 then "special-files" else empty end)]} | .ready=(.blockers | length == 0)
 '

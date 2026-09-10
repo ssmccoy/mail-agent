@@ -1,10 +1,10 @@
 # Isolated mail-agent execution
 
-This is the accepted deployment design and the remaining adoption work. The
-current executor remains available during each change. Never automatically
-switch a failed isolated task to the legacy executor.
+This is the accepted deployment design implemented by the optional system
+backend. The current executor remains available during each change. Never
+automatically switch a failed isolated task to the legacy executor.
 
-## Implemented preparation
+## Execution interface
 
 Investigate, plan, and research prohibit writes to the checkout and shared Git
 metadata. Every harness and mode has a configurable tool profile. Research
@@ -19,20 +19,19 @@ phase writes an outcome with its task identity and exit status. The dispatcher
 records tasks outside agent-writable directories and never executes a recorded
 task again. There is no automatic model replay or checkpoint recovery protocol.
 
-Runtime paths are now explicit; see [runtime configuration]. Backend records
+Runtime paths are explicit; see [runtime configuration]. Backend records
 preserve each stream’s selection, forks inherit that selection, and admission
 can be paused while incoming mail remains queued. The [migration procedure]
-describes the implemented inspection commands, retained state, required
-transfer validation, rollback, and the remaining system-backend work. No
-system-service backend or nftables policy is installed by these preparatory
-changes.
+documents installation, qualification, state transfer, rollback, and retention.
+The home executor remains the default. The system backend has offline protocol
+tests but requires qualification on each deployment host before activation.
 
 ## System-service backend
 
-Retain an unprivileged dispatcher and introduce administrator-installed system
-service templates authorized through start-only polkit rules. Use the existing
-mail session UUID as the stream identity. Record a backend per stream; changing
-the installation default affects new streams only.
+The unprivileged dispatcher starts administrator-installed system service
+templates through start-only polkit rules. Use the existing mail session UUID
+as the stream identity. Record a backend per stream; changing the installation
+default affects new streams only.
 
 Use DynamicUser and one persistent StateDirectory per stream. Different mode
 variants must be serialized before directory setup as well as during execution.
@@ -74,13 +73,11 @@ Combine inference endpoints with explicit project exceptions such as remote
 build-cache services. Specify IPv4/IPv6 addresses, protocol, and destination
 port. Requests cannot supply firewall rules or endpoint addresses.
 
-Classify workloads through cgroups. On supported systemd versions, NFTSet can
-manage dynamic membership in nftables sets. Use default denial for the workload
-class independently of optional policy membership. Missing sets, wrong
-membership, missing enforcement, and unsupported versions must fail before the
-agent starts. Verify reload and restart behavior; do not depend on recycled
-UIDs or assume a successful unit start establishes enforcement. No bpftool
-dependency is planned.
+The implementation classifies sockets through persistent cgroup slices, without
+NFTSet or dynamic UID matching. Default denial applies to the workload class
+independently of its per-policy match. Missing enforcement, stale slice
+identities, and unsupported layouts fail before an agent starts. Policy reload
+stops dependent workloads before replacing rules. No bpftool is required.
 
 Research has broad network access, read-only project/documentation access,
 private read/write working space, and persistent per-stream CLI history. Stop
@@ -118,5 +115,44 @@ administrative retention operation. Start-only authorization does not grant
 cancellation or deletion. Keep the legacy executor until streams have migrated
 or retired.
 
+## Implemented policy selection and verification
+
+Each configured project/harness/mode combination generates a separate
+`mail-agent-POLICY@SESSION.service` template and `mailagent-POLICY.slice`. All
+policy slices belong to the dedicated `mailagent.slice`. The firewall service
+creates them before loading numeric destination/protocol/port rules. Its
+nftables input and output chains classify sockets by those persistent cgroup
+ancestors; unmatched policy descendants are denied. Research policies accept IP
+traffic. The service templates serialize policy changes for a stream before
+systemd configures its reused state directory.
+
+Preflight verifies the expected cgroup path, persistent slice identities,
+qualified component hashes, and the complete installed nftables table. The
+outer launcher applies strict Landlock before reading the request. Git and
+harness execution enter narrower domains; agent-writable paths exclude the
+control record and result exchange. Device access is constrained by the private
+device mount and Landlock path grants, with an empty capability set. No device,
+network, or IPC descriptors are passed from the dispatcher.
+
+The main phase exits before `ExecStopPost` exports results. A second preflight
+checks policy again. Protected output records contain the request ID, task ID,
+invocation ID, and exit status. The client waits for termination, checks named
+bounded results, and imports them into dispatcher storage. Live event exports
+are diagnostic only. Raw workload mail headers do not select recipients or
+repository routing. Agent tasks are never automatically replayed;
+administrative imports may be repeated while a stream remains paused.
+
+The exact classifier and strict confinement must pass the deployment probes in
+[migration procedure]. The implementation does not treat unit properties, an
+attached program, or an unqualified successful unit start as evidence of
+network enforcement. Administrators own the probes and policy lifecycle; direct
+nftables table replacement during execution is outside that lifecycle.
+
+The relevant upstream interfaces are the [nftables socket expressions],
+[systemd managed execution], and [landrun strict sandbox implementation].
+
   [runtime configuration]: runtime.md
   [migration procedure]: migration.md
+  [nftables socket expressions]: https://netfilter.org/projects/nftables/manpage.html
+  [systemd managed execution]: https://man7.org/linux/man-pages/man5/systemd.exec.5.html
+  [landrun strict sandbox implementation]: https://github.com/Zouuup/landrun

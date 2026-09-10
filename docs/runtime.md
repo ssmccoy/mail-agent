@@ -6,24 +6,24 @@ paths without copying executables or toolchains into a stream. Defaults retain
 the existing home installation. The invoking account supplies overrides in its
 service environment; phase requests cannot specify these values.
 
-| Variable                      | Default                                   | Purpose                                                        |
-|-------------------------------|-------------------------------------------|----------------------------------------------------------------|
-| `MAIL_AGENT_LIB`              | `$HOME/lib/mail-agent`                    | Trusted runtime definitions                                    |
-| `MAIL_AGENT_BIN`              | `$HOME/bin`                               | Mail-agent executables                                         |
-| `MAIL_AGENT_CONFIG`           | `$HOME/.config/mail-agent`                | Instructions, tool profiles, and result transforms             |
-| `MAIL_AGENT_PROFILES`         | `$HOME/.config/landlock`                  | Filesystem profiles                                            |
-| `MAIL_AGENT_LANDLOCK`         | `$HOME/bin/landlock`                      | Installed confinement launcher                                 |
-| `MAIL_AGENT_EXECUTABLE`       | `$HOME/.local/bin/DRIVER`                 | Selected harness executable                                    |
-| `MAIL_AGENT_PACKAGES`         | Harness-specific package directory        | Runtime dependencies of that harness                           |
-| `MAIL_AGENT_SHARED_STATE`     | Harness-specific configuration directory  | Approved configuration and legacy history source               |
-| `MAIL_AGENT_AUTH`             | Interactive harness credential file       | Shared authentication, linked into private harness state       |
-| `MAIL_AGENT_REPOSITORIES`     | `$HOME/mail/.agent/repos`                 | Shared Git repositories; controller relocation remains pending |
-| `MAIL_AGENT_TOOLCHAIN`        | `$HOME/.proto`                            | Shared read/execute toolchain tree                             |
-| `MAIL_AGENT_TOOLCHAIN_CONFIG` | `$HOME/.prototools`                       | Read-only toolchain configuration                              |
-| `MAIL_AGENT_EXEC_PATH`        | Toolchain `shims`, `bin`, then `/usr/bin` | Harness command search path                                    |
-| `MAIL_AGENT_GO_CACHE`         | `$HOME/mail/.agent/go`                    | Shared read/write Go caches outside research                   |
-| `MAIL_AGENT_GIT_CONFIG`       | `$HOME/.config/git`                       | Read-only Git configuration                                    |
-| `MAIL_AGENT_INSTRUCTIONS`     | `$HOME/.claude/CLAUDE.md`                 | Shared read-only instructions                                  |
+| Variable                      | Default                                   | Purpose                                                  |
+|-------------------------------|-------------------------------------------|----------------------------------------------------------|
+| `MAIL_AGENT_LIB`              | `$HOME/lib/mail-agent`                    | Trusted runtime definitions                              |
+| `MAIL_AGENT_BIN`              | `$HOME/bin`                               | Mail-agent executables                                   |
+| `MAIL_AGENT_CONFIG`           | `$HOME/.config/mail-agent`                | Instructions, tool profiles, and result transforms       |
+| `MAIL_AGENT_PROFILES`         | `$HOME/.config/landlock`                  | Filesystem profiles                                      |
+| `MAIL_AGENT_LANDLOCK`         | `$HOME/bin/landlock`                      | Installed confinement launcher                           |
+| `MAIL_AGENT_EXECUTABLE`       | `$HOME/.local/bin/DRIVER`                 | Selected harness executable                              |
+| `MAIL_AGENT_PACKAGES`         | Harness-specific package directory        | Runtime dependencies of that harness                     |
+| `MAIL_AGENT_SHARED_STATE`     | Harness-specific configuration directory  | Approved configuration and legacy history source         |
+| `MAIL_AGENT_AUTH`             | Interactive harness credential file       | Shared authentication, linked into private harness state |
+| `MAIL_AGENT_REPOSITORIES`     | `$HOME/mail/.agent/repos`                 | Legacy shared Git repositories                           |
+| `MAIL_AGENT_TOOLCHAIN`        | `$HOME/.proto`                            | Shared read/execute toolchain tree                       |
+| `MAIL_AGENT_TOOLCHAIN_CONFIG` | `$HOME/.prototools`                       | Read-only toolchain configuration                        |
+| `MAIL_AGENT_EXEC_PATH`        | Toolchain `shims`, `bin`, then `/usr/bin` | Harness command search path                              |
+| `MAIL_AGENT_GO_CACHE`         | `$HOME/mail/.agent/go`                    | Shared read/write Go caches outside research             |
+| `MAIL_AGENT_GIT_CONFIG`       | `$HOME/.config/git`                       | Read-only Git configuration                              |
+| `MAIL_AGENT_INSTRUCTIONS`     | `$HOME/.claude/CLAUDE.md`                 | Shared read-only instructions                            |
 
 Harness defaults are:
 
@@ -54,3 +54,13 @@ access to future DynamicUser state directories, implement an isolated backend,
 or change the existing Landlock network policy. Administrator-owned runtime
 installation, private state imports, and nftables enforcement remain separate
 adoption work.
+
+The system backend selects these paths from root-owned policy environment files
+generated from `system.json`. It additionally sets `MAIL_AGENT_SYSTEM_SHARED`
+to the approved project object store; requests cannot supply that override. Its
+installer produces strict profiles without `best-effort` or Landlock TCP port
+rules, because nftables supplies TCP/UDP address and port enforcement. See
+[migration] for group access, shared interactive authentication, cache
+permissions, toolchain provisioning, and required host qualification.
+
+  [migration]: migration.md

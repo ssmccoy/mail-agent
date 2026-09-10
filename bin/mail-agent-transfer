@@ -1,0 +1,160 @@
+#!/bin/sh
+# Transfer an idle stream while preserving its queue and dispatcher records.
+# Usage: mail-agent-transfer <apply|rollback> <session>
+set -eu
+. "${MAIL_AGENT_LIB:-$HOME/lib/mail-agent}/runtime.sh"
+
+[ "$#" -eq 2 ] || exit 64
+case "$1" in apply|rollback) ;; *) exit 64 ;; esac
+printf '%s\n' "$2" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || exit 64
+operation=$1
+session=$2
+root="$HOME/mail/.agent"
+work="$root/work/$session"
+configuration=${MAIL_AGENT_SYSTEM_CONFIG:-/etc/mail-agent/system.json}
+
+[ -d "$work" ] && [ ! -L "$work" ] || exit 66
+umask 077
+mkdir -p "$root/migrations/$session"
+exec 9> "$root/lock/$session"
+flock -n 9 || exit 75
+selection=$("$MAIL_AGENT_BIN/mail-agent-stream" show "$session")
+[ "$(printf '%s' "$selection" | jq -r .state)" = paused ] || {
+    echo "pause the stream before transferring it" >&2; exit 75;
+}
+busy=0
+"$MAIL_AGENT_BIN/mail-agent-system" busy "$session" || busy=$?
+[ "$busy" -eq 1 ] || exit 75
+backend=$(printf '%s' "$selection" | jq -r .backend)
+case "$operation:$backend" in apply:legacy|rollback:system) ;; *) exit 64 ;; esac
+
+scratch=$(mktemp -d "$root/migrations/$session/$operation.XXXXXXXX")
+# Keep failed transfers for inspection. None of these files authorize a turn.
+printf '%s\n' "$scratch" > "$root/migrations/$session/current"
+project=$(cat "$work/project" 2>/dev/null || true)
+alias=$(cat "$work/agent")
+driver=$(awk -v alias="$alias" '$1 == alias { print $2; exit }' "$MAIL_AGENT_CONFIG/agents")
+case "$driver" in claude|codex|pi) ;; *) exit 78 ;; esac
+export MAIL_AGENT_DRIVER="$driver"
+
+copy_tree() {
+    "$MAIL_AGENT_BIN/mail-agent-system-copy" "$1" "$2" 1099511627776
+}
+
+history() {
+    mkdir -p "$2/$driver"
+    for name in sessions projects plans; do
+        if [ -d "$1/$driver/$name" ]; then
+            copy_tree "$1/$driver/$name" "$2/$driver/$name"
+        fi
+    done
+}
+
+local_git() {
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+        MAIL_AGENT_SYSTEM_REPO="$work/repo" MAIL_AGENT_SYSTEM_SHARED="$shared" \
+        MAIL_AGENT_SYSTEM_PROJECT="$project" MAIL_AGENT_SYSTEM_GIT_TMP="$scratch/git" \
+        MAIL_AGENT_SYSTEM_GIT_ACCESS=write "$MAIL_AGENT_BIN/mail-agent-system-git" "$@"
+}
+
+registration() {
+    shared=$(jq -er --arg project "$project" --arg driver "$driver" \
+        '[.policies[] | select(.project == $project and .driver == $driver and .mode == "execute") | .shared] |
+         unique | if length == 1 then .[0] else error("missing project policy") end' "$configuration")
+    [ -f "$work/repo/.git" ] && [ ! -L "$work/repo/.git" ] || return 65
+    directory=$(sed -n 's/^gitdir: //p' "$work/repo/.git")
+    directory=$(realpath -e "$directory")
+    case "$directory" in "$shared/worktrees/"*) ;; *)
+        echo "reuse the registered shared repository in the installed policy" >&2; return 78 ;;
+    esac
+    [ "$(realpath -e "$(cat "$directory/gitdir")")" = "$(realpath -e "$work/repo/.git")" ] || return 65
+    [ "$(cat "$directory/HEAD")" = "ref: refs/heads/mail/$session" ] || return 65
+    [ ! -e "$shared/objects/info/alternates" ] && [ ! -L "$shared/objects/info/alternates" ] || return 65
+    [ -z "$(find -P "$shared/objects" -type f -links +1 -print -quit)" ] || return 65
+    mkdir -p "$scratch/git"
+}
+
+replace_checkout() {
+    # Do not follow worktree symlinks or replace its Git registration.
+    find -P "$work/repo" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+    cp -a --no-preserve=ownership "$1/." "$work/repo/"
+}
+
+switch_backend() {
+    sync -f "$work"
+    exec 8> "$root/streams/.lock"
+    flock 8
+    printf '%s' "$selection" | jq --arg backend "$1" '.backend=$backend' > "$scratch/stream.json"
+    sync "$scratch/stream.json"
+    cp "$scratch/stream.json" "$root/streams/$session.json.new"
+    sync "$root/streams/$session.json.new"
+    mv "$root/streams/$session.json.new" "$root/streams/$session.json"
+    sync "$root/streams"
+    touch "$scratch/complete"
+}
+
+if [ -n "$project" ]; then
+    registration
+fi
+
+mkdir "$scratch/input" "$scratch/export"
+if [ "$operation" = apply ]; then
+    # The state helper imports selected legacy transcripts and Codex ancestry.
+    # Run it before copying only history directories, excluding shared secrets.
+    [ ! -L "$work/harness" ] || exit 65
+    if [ -d "$work/harness" ]; then
+        find -P "$work/harness" -type l -print > "$scratch/history-links"
+        while IFS= read -r link; do
+            case "$link" in
+                "$work/harness/$driver/auth.json"|"$work/harness/$driver/.credentials.json"|"$work/harness/$driver/extensions") ;;
+                *) echo "unexpected symlink in harness history" >&2; exit 65 ;;
+            esac
+        done < "$scratch/history-links"
+    fi
+    "$MAIL_AGENT_BIN/mail-agent-state" "$driver" "$work"
+    copy_tree "$work/repo" "$scratch/input/checkout"
+    rm -f "$scratch/input/checkout/.git"
+    history "$work/harness" "$scratch/input/history"
+    if [ -n "$project" ]; then
+        head=$(local_git -C "$work/repo" rev-parse HEAD)
+        cp "$directory/index" "$scratch/input/index"
+    else
+        head=""
+    fi
+    # An interrupted administrative import may already have completed. Compare
+    # its snapshot before selecting the backend; never replay an agent task.
+    MAIL_AGENT_SYSTEM_BASE="$head" "$MAIL_AGENT_BIN/mail-agent-system" import "$work" "$scratch/input" || true
+    "$MAIL_AGENT_BIN/mail-agent-system" snapshot "$work" "$scratch/export"
+    rm -f "$scratch/export/checkout/.git"
+    diff -r --no-dereference "$scratch/input/checkout" "$scratch/export/checkout"
+    diff -r --no-dereference "$scratch/input/history" "$scratch/export/history"
+    if [ -n "$project" ]; then
+        cmp "$scratch/input/index" "$scratch/export/index"
+        [ "$(cat "$scratch/export/head")" = "$head" ] || exit 65
+    fi
+    touch "$work/prepared"
+    switch_backend system
+else
+    # Export first. Retain a complete rollback backup before modifying legacy
+    # files, so interruption never discards the previous working checkout.
+    "$MAIL_AGENT_BIN/mail-agent-system" snapshot "$work" "$scratch/export"
+    rm -f "$scratch/export/checkout/.git"
+    copy_tree "$work/repo" "$scratch/previous-checkout"
+    if [ -d "$work/harness" ]; then
+        copy_tree "$work/harness" "$scratch/previous-harness"
+    fi
+    if [ -n "$project" ]; then
+        cp "$directory/index" "$scratch/previous-index"
+        local_git -C "$work/repo" update-ref "refs/heads/mail/$session" "$(cat "$scratch/export/head")"
+    fi
+    replace_checkout "$scratch/export/checkout"
+    if [ -n "$project" ]; then
+        cp --remove-destination "$scratch/export/index" "$directory/index"
+    fi
+    rm -rf "$work/harness"
+    copy_tree "$scratch/export/history" "$work/harness"
+    "$MAIL_AGENT_BIN/mail-agent-state" "$driver" "$work"
+    diff -r --no-dereference "$scratch/export/checkout" "$work/repo" --exclude=.git
+    switch_backend legacy
+fi
+printf '%s remains paused; inspect the transfer before resuming\n' "$session"

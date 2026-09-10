@@ -539,3 +539,19 @@ invoke_driver() {
     printf '{"token":"renewed"}\n' > "$auth"
     cmp "$auth" "$work/harness/codex/auth.json"
 }
+
+@test "Claude relocates an imported transcript to the current checkout" {
+    prepare_driver
+    mkdir -p "$work/harness/claude/projects/previous-checkout"
+    printf 'selected\n' > "$work/agent-session"
+    printf '{"sessionId":"selected"}\n' > "$work/harness/claude/projects/previous-checkout/selected.jsonl"
+    encoded=$(printf '%s' "$work/repo" | sed 's|[/.]|-|g')
+    run invoke "$case_home/bin/mail-agent-state" claude "$work"
+
+    [ "$status" -eq 0 ]
+    cmp "$work/harness/claude/projects/previous-checkout/selected.jsonl" \
+        "$work/harness/claude/projects/$encoded/selected.jsonl"
+    run invoke "$case_home/bin/mail-agent-state" claude "$work"
+
+    [ "$status" -eq 0 ]
+}
