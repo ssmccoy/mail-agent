@@ -1,0 +1,50 @@
+#!/bin/bash
+# Check or provision one project from a declarative deployment manifest.
+# Usage: mail-agent-system-project <check|apply> <manifest.json> <project>
+set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+[ "$#" -eq 3 ] || exit 64
+
+case "$1" in
+    check) MAIL_AGENT_LIB=${MAIL_AGENT_LIB:-/usr/local/lib/mail-agent} ;;
+    apply)
+        [ "$(id -u)" -eq 0 ] || exit 77
+        MAIL_AGENT_LIB=/usr/local/lib/mail-agent
+        ;;
+    *) exit 64 ;;
+esac
+
+. "$MAIL_AGENT_LIB/system/project.sh"
+
+if [ "$1" = apply ]; then
+    project_trusted "$2"
+fi
+
+project_load "$2" "$3"
+project_check
+
+if [ "$1" = check ]; then
+    exit 0
+fi
+
+active=$(systemctl --system --no-legend --plain list-units \
+    --state=active,activating,deactivating,reloading 'mail-agent-*@*.service')
+
+[ -z "$active" ] || { printf "stop isolated services before provisioning\n" >&2; exit 75; }
+project_lock_streams
+rm -f /etc/mail-agent/qualified
+
+if [ "$(systemctl --system show --value --property=LoadState mail-agent-firewall.service)" != not-found ]; then
+    systemctl --system stop mail-agent-firewall.service
+fi
+
+project_backup=$(mktemp -d "/var/backups/mail-agent-$project_id.XXXXXXXX")
+
+cp -- "$manifest" "$project_backup/manifest.json"
+project_provision
+/usr/local/libexec/mail-agent/mail-agent-system-admin configure "$manifest"
+
+printf 'Provisioned %s. Backup: %s\n' "$project_id" "$project_backup"
+printf 'Backend selection is unchanged; qualification and migration remain separate.\n'

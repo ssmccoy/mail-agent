@@ -1,5 +1,6 @@
 #!/bin/sh
-# Copy to /etc/mail-agent/probes/POLICY, owned by root and not group-writable.
+# Copy to /etc/mail-agent/probes/default, owned by root and not group-writable.
+# A per-authorization /etc/mail-agent/probes/POLICY can override this script.
 # This runs as the dynamic user inside the real policy cgroup and outer Landlock
 # domain. Supply assertions for this host, project, harness, and mode.
 set -eu

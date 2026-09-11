@@ -29,17 +29,16 @@ inactive() {
 
 configure() {
     trusted "$1"
-    jq -e -f "$library/system/config.jq" "$1" > /dev/null
-    inactive
-    systemctl --system stop mail-agent-firewall.service 2>/dev/null || true
-    rm -f /etc/mail-agent/qualified
     scratch=$(mktemp -d /etc/mail-agent/configure.XXXXXXXX)
     trap 'rm -rf "$scratch"' EXIT
     MAIL_AGENT_LIB="$library" "$binary/mail-agent-system-config" "$1" "$scratch/compiled"
+    inactive
+    systemctl --system stop mail-agent-firewall.service 2>/dev/null || true
+    rm -f /etc/mail-agent/qualified
     for group in mail_agent_submit mail_agent_results; do
         getent group "$group" > /dev/null || groupadd --system "$group"
     done
-    dispatcher=$(jq -r .dispatcher "$1")
+    dispatcher=$(jq -r .dispatcher "$scratch/compiled/system.json")
     id "$dispatcher" > /dev/null
     usermod -a -G mail_agent_submit,mail_agent_results "$dispatcher"
     install -d -o "$dispatcher" -g mail_agent_submit -m 2750 /var/lib/mail-agent-submissions
@@ -63,10 +62,12 @@ qualify() {
     done
     [ -z "$(find "$binary" "$library" /etc/mail-agent -type f \( ! -user root -o -perm /022 \) -print -quit)" ] || return 78
     for policy in $(jq -r '.policies | keys[]' "$configuration"); do
-        trusted "/etc/mail-agent/probes/$policy"
+        probe="/etc/mail-agent/probes/$policy"
+        [ -f "$probe" ] || probe=/etc/mail-agent/probes/default
+        trusted "$probe"
     done
-    [ "$(/usr/local/bin/landrun --version)" = "landrun version 0.1.18" ] || {
-        echo "qualify this implementation with landrun 0.1.18 (strict ABI 9)" >&2
+    [ "$(/usr/local/bin/landrun --version)" = "landrun version 0.1.17" ] || {
+        echo "qualify this implementation with landrun 0.1.17 (strict ABI 9)" >&2
         return 78
     }
     # Only the fixed qualification instance can start without qualification;

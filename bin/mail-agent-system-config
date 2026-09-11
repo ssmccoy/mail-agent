@@ -15,11 +15,20 @@ configuration=$1
 destination=$2
 library="$MAIL_AGENT_LIB/system"
 
-jq -e -f "$library/config.jq" "$configuration" > /dev/null || exit 65
+filter="$library/config.jq"
+
+if [ "$(jq -r .schema "$configuration")" = 2 ]; then
+    filter="$library/manifest.jq"
+fi
+
+jq -e -f "$filter" "$configuration" > /dev/null || exit 65
 
 umask 077
 mkdir -p "$destination"
-cp "$configuration" "$destination/system.json"
+jq -e -f "$filter" "$configuration" > "$destination/system.json"
+configuration="$destination/system.json"
+
+jq -e -f "$library/config.jq" "$configuration" > /dev/null || exit 65
 cp "$library/phase.cfg" "$destination/phase.cfg"
 jq -r -f "$library/firewall.jq" "$configuration" > "$destination/firewall.nft"
 
@@ -28,8 +37,11 @@ for policy in $(jq -r '.policies | keys[]' "$configuration"); do
         > "$destination/mail-agent-$policy@.service"
     jq -r --arg id "$policy" -f "$library/environment.jq" "$configuration" \
         > "$destination/$policy.env"
-    printf '[Unit]\nDescription=Mail-agent policy %s\n[Slice]\nCPUAccounting=yes\n' "$policy" \
-        > "$destination/mailagent-$policy.slice"
+done
+
+for network in $(jq -r '(.networks // .policies) | keys[]' "$configuration"); do
+    printf '[Unit]\nDescription=Mail-agent network %s\n[Slice]\nCPUAccounting=yes\n' "$network" \
+        > "$destination/mailagent-$network.slice"
 done
 
 printf '[Unit]\nDescription=Mail-agent workloads\n[Slice]\nCPUAccounting=yes\n' \
@@ -47,9 +59,9 @@ jq -r '
 
 {
     printf '[Unit]\nDescription=Mail-agent nftables policy\nRequires=mailagent.slice '
-    jq -r '.policies | keys[] | "mailagent-" + . + ".slice"' "$configuration" | tr '\n' ' '
+    jq -r '(.networks // .policies) | keys[] | "mailagent-" + . + ".slice"' "$configuration" | tr '\n' ' '
     printf '\nAfter=mailagent.slice '
-    jq -r '.policies | keys[] | "mailagent-" + . + ".slice"' "$configuration" | tr '\n' ' '
+    jq -r '(.networks // .policies) | keys[] | "mailagent-" + . + ".slice"' "$configuration" | tr '\n' ' '
     printf '\n[Service]\nType=oneshot\nRemainAfterExit=yes\n'
     printf 'ExecStart=/usr/local/libexec/mail-agent/mail-agent-firewall start\n'
     printf 'ExecStop=/usr/local/libexec/mail-agent/mail-agent-firewall stop\n'

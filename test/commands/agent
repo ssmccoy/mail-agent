@@ -6,11 +6,20 @@ name=${0##*/}
 printf "%s\n" "$@" > "$CASE_ROOT/cli-arguments"
 cat > "$CASE_ROOT/cli-prompt"
 
+status=0
+
 if [ -f "$CASE_ROOT/status" ]; then
-    exit "$(cat "$CASE_ROOT/status")"
+    status=$(cat "$CASE_ROOT/status")
 fi
 
-if [ "$name" = codex ]; then
+# A killed turn (124) leaves no stream; every other outcome, success or a
+# reported failure, still emits events. A final message is written only when
+# the turn succeeds.
+if [ "$status" -eq 124 ]; then
+    exit "$status"
+fi
+
+if [ "$status" -eq 0 ] && [ "$name" = codex ]; then
     while [ "$#" -gt 0 ]; do
         if [ "$1" = "-o" ]; then
             printf "Inspection complete.\n" > "$2"
@@ -22,3 +31,5 @@ if [ "$name" = codex ]; then
 fi
 
 cat "$CASE_ROOT/$name.jsonl"
+
+exit "$status"

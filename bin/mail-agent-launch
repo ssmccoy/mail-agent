@@ -59,7 +59,9 @@ if [ -n "$repo" ]; then
         set -- "$permission" "$objects" "$@"
     fi
 
-    set -- -r "$repo" "$@"
+    if [ -z "${MAIL_AGENT_SYSTEM_SHARED:-}" ]; then
+        set -- -r "$repo" "$@"
+    fi
 fi
 
 exec "$MAIL_AGENT_LANDLOCK" -c "$MAIL_AGENT_PROFILES/mail-agent-$driver$suffix.cfg" "$@"

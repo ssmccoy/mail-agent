@@ -24,19 +24,19 @@ profiles. Execute profiles currently enable `best-effort`; without kernel
 support, filesystem restrictions may not be enforced. Investigate and plan
 profiles require enforcement.
 
-| Dependency                              | Purpose                                        |
-|-----------------------------------------|------------------------------------------------|
-| postfix                                 | Local delivery with `recipient_delimiter = +`  |
-| systemd user instance                   | Transient workers and retry timer              |
-| [landrun] and a `.cfg` profile launcher | Filesystem and network restrictions            |
-| mblaze                                  | Mail parsing and composition                   |
-| jq                                      | Routing, event processing, and usage reports   |
-| pandoc                                  | Markdown rendering and text wrapping           |
-| awk                                     | HTML and numeric formatting                    |
-| git                                     | Clones, worktrees, `format-patch`, and `am`    |
-| w3m                                     | Attachment and Markdown display                |
-| mutt                                    | Mail interface and patch application shortcuts |
-| `claude` or `codex` or `pi`             | Agent CLI                                      |
+| Dependency | Purpose |
+|----|----|
+| postfix | Local delivery with `recipient_delimiter = +` |
+| systemd user instance | Transient workers and retry timer |
+| [landrun] and a `.cfg` profile launcher | Filesystem and network restrictions |
+| mblaze | Mail parsing and composition |
+| jq | Routing, event processing, and usage reports |
+| pandoc | Markdown rendering and text wrapping |
+| awk | HTML and numeric formatting |
+| git | Clones, worktrees, `format-patch`, and `am` |
+| w3m | Attachment and Markdown display |
+| mutt | Mail interface and patch application shortcuts |
+| `claude` or `codex` or `pi` | Agent CLI |
 
 Claude must support `--output-format stream-json` and `--settings`. Codex must
 support `exec fork` and `--json`.
@@ -223,8 +223,10 @@ queued mail; `resume` enables admission again.
 invoking Git or reading credential contents. See the [migration procedure] for
 commands, preservation requirements, and rollback.
 
-Keep `~/.config/mail-agent/backend` set to `legacy`: the system backend and
-nftables integration are not implemented. Selecting an unavailable backend
+The system backend includes nftables enforcement and [maintained deployment
+tooling]. Define shared harness and mode settings in a host manifest, then
+check and provision each project. Keep `~/.config/mail-agent/backend` set to
+`legacy` until real-host qualification passes. Selecting an unavailable backend
 reports scheduling failure without executing the task locally.
 
 ### Effort
@@ -301,12 +303,12 @@ message separately. Start Mutt in the target repository or one of its
 subdirectories. The applier checks the expected repository before applying the
 patches.
 
-| Key      | Menu         | Action                                                              |
-|----------|--------------|---------------------------------------------------------------------|
-| `A`      | Index, pager | Apply patches to the repository containing Mutt’s working directory |
-| `esc-A`  | Index, pager | Apply patches to the request’s source repository                    |
-| `W`      | Attachments  | Open an attachment in w3m                                           |
-| `ctrl-d` | Index, pager | Delete the thread and retire its session                            |
+| Key | Menu | Action |
+|----|----|----|
+| `A` | Index, pager | Apply patches to the repository containing Mutt’s working directory |
+| `esc-A` | Index, pager | Apply patches to the request’s source repository |
+| `W` | Attachments | Open an attachment in w3m |
+| `ctrl-d` | Index, pager | Delete the thread and retire its session |
 
 Retiring a session deletes its worktree and queued requests. Undoing a mailbox
 deletion does not restore the session. Diff colors apply only to messages with
@@ -396,13 +398,13 @@ aliases. Existing streams import their selected continuation transcript from
 the former shared history directory; forks copy only the selected parent
 transcript.
 
-| Setting                | Claude                        | Codex                               |
-|------------------------|-------------------------------|-------------------------------------|
-| State directory        | `~/mail/.agent/claude`        | `~/mail/.agent/codex`               |
-| Credential link target | `~/.claude/.credentials.json` | `~/.codex/auth.json`                |
-| Instruction file       | `CLAUDE.md`                   | `AGENTS.md`                         |
-| Edit restriction       | CLI permission mode           | Landlock profile                    |
-| Usage report           | Reported dollar cost          | Token counts and estimated API cost |
+| Setting | Claude | Codex |
+|----|----|----|
+| State directory | `~/mail/.agent/claude` | `~/mail/.agent/codex` |
+| Credential link target | `~/.claude/.credentials.json` | `~/.codex/auth.json` |
+| Instruction file | `CLAUDE.md` | `AGENTS.md` |
+| Edit restriction | CLI permission mode | Landlock profile |
+| Usage report | Reported dollar cost | Token counts and estimated API cost |
 
 Codex does not report a per-turn ChatGPT subscription charge. The driver
 estimates Standard API cost using its configured model rates and the reported
@@ -464,4 +466,5 @@ installed by `make install`.
   [landrun]: https://github.com/Zouuup/landrun
   [runtime configuration]: docs/runtime.md
   [migration procedure]: docs/migration.md
+  [maintained deployment tooling]: docs/deployment.md
   [the adoption document]: docs/isolation.md

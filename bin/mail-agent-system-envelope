@@ -37,7 +37,9 @@ fi
 # no best-effort fallback; unsupported kernel features prevent this exec.
 if [ "$MAIL_AGENT_SYSTEM_SESSION" = qualification ]; then
     [ "$MAIL_AGENT_SYSTEM_STAGE" = run ] || exit 0
-    exec /usr/local/bin/landlock "$@" /bin/sh "/etc/mail-agent/probes/$MAIL_AGENT_SYSTEM_POLICY"
+    probe="/etc/mail-agent/probes/$MAIL_AGENT_SYSTEM_POLICY"
+    [ -f "$probe" ] || probe=/etc/mail-agent/probes/default
+    exec /usr/local/bin/landlock "$@" /bin/sh "$probe"
 fi
 
 exec /usr/local/bin/landlock "$@" /usr/local/libexec/mail-agent/mail-agent-system-phase

@@ -11,6 +11,10 @@ handoff checklist]. It distinguishes missing qualification probes from
 implemented migration and covers the separate case of moving sessions between
 machines.
 
+For reproducible host configuration and one provisioning command per project,
+use [maintained deployment tooling]. Schema-2 manifests share project, harness,
+mode, and endpoint definitions; schema-1 configurations remain supported.
+
 ## Install and qualify
 
 First install the home scripts and library with `make install`. Existing
@@ -35,7 +39,7 @@ Installation invalidates prior qualification. Do not upgrade either executor
 while its invocations are running.
 
 Install the Landlock wrapper at `/usr/local/bin/landlock` and landrun
-**0.1.18** at `/usr/local/bin/landrun`. Their resolved paths and ancestor
+**0.1.17** at `/usr/local/bin/landrun`. Their resolved paths and ancestor
 directories must be root-owned and not group- or other-writable. This
 implementation requires landrun’s strict ABI 9 filesystem and IPC restrictions,
 Linux cgroup v2, systemd with DynamicUser and the emitted hardening directives,
@@ -69,10 +73,12 @@ streams migrate by **reusing their currently registered shared repository** at
 its existing path. Correct its group permissions during project maintenance,
 with affected streams paused; do not run recursive permission changes while
 agents execute. Shared objects, refs, hooks, and caches do not provide
-integrity isolation between members of that project group. The original source
-remains read-only. Configure Git’s safe-directory setting for the approved
-shared repository and private worktrees in the trusted harness configuration if
-the installed Git requires it.
+integrity isolation between members of that project group. Trusted repository
+preparation reads the original source. Native harnesses receive access to the
+private checkout and approved shared Git storage, without a grant for the
+original source directory. Configure Git’s safe-directory setting for the
+approved shared repository and private worktrees in the trusted harness
+configuration if the installed Git requires it.
 
 Shared caches receive read/write access without direct execution permission.
 Interpreters can still read their contents; this is not a prohibition on
@@ -114,13 +120,14 @@ so it receives its new supplementary groups. Audit other host polkit rules for
 broader authority. Review generated CPU, memory, task, and runtime limits; use
 administrator-owned unit drop-ins for deployment-specific values.
 
-Install a root-owned `/etc/mail-agent/probes/POLICY` script for **every**
-policy. `system/probe.example.sh` documents required assertions and exits
-unsuccessfully until replaced. `mail-agent-system-admin qualify` starts each
-script as the real dynamic user in its policy cgroup and outer Landlock domain,
-without reading submissions or executing an agent phase. Probes must also
-exercise the installed inner profiles and native harness, including the actual
-per-mode tool configuration. A script returning zero is an
+Install a root-owned `/etc/mail-agent/probes/default` acceptance script.
+Optional `/etc/mail-agent/probes/POLICY` files override it for individual
+authorizations. `system/probe.example.sh` documents required assertions and
+exits unsuccessfully until replaced. `mail-agent-system-admin qualify` starts
+each script as the real dynamic user in its policy cgroup and outer Landlock
+domain, without reading submissions or executing an agent phase. Probes must
+also exercise the installed inner profiles and native harness, including the
+actual per-mode tool configuration. A script returning zero is an
 administrator-supplied assertion; the command cannot infer whether that script
 tested all required behavior.
 
@@ -273,3 +280,4 @@ streams. Migrate remaining legacy streams individually. Keep the home executor
 installed as long as retained legacy streams or rollback requirements need it.
 
   [isolation handoff checklist]: isolation-handoff.md
+  [maintained deployment tooling]: deployment.md

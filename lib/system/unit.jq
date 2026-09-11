@@ -10,7 +10,7 @@
  "StateDirectory=mail-agent-%i", "StateDirectoryMode=0700",
  "RuntimeDirectory=mail-agent-%i", "RuntimeDirectoryMode=0700",
  "WorkingDirectory=/var/lib/mail-agent-%i", "UMask=0007",
- "Slice=mailagent-" + $id + ".slice",
+ "Slice=mailagent-" + ($p.network // $id) + ".slice",
  "EnvironmentFile=/etc/mail-agent/policies/" + $id + ".env",
  "Environment=MAIL_AGENT_SYSTEM_POLICY=" + $id,
  "ExecStartPre=+/usr/local/libexec/mail-agent/mail-agent-system-verify " + $id + " %i",

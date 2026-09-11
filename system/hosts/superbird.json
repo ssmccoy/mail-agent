@@ -1,0 +1,285 @@
+{
+  "schema": 2,
+  "dispatcher": "scott",
+  "modes": [
+    "investigate",
+    "plan",
+    "execute",
+    "research"
+  ],
+  "runtime": {
+    "git_config": "/home/scott/.config/git",
+    "instructions": "/home/scott/.claude/CLAUDE.md",
+    "toolchain": "/home/scott/.proto",
+    "toolchain_config": "/home/scott/.prototools"
+  },
+  "endpoints": {
+    "dns": [
+      {
+        "family": "ip",
+        "address": "127.0.0.53",
+        "protocol": "tcp",
+        "port": 53
+      },
+      {
+        "family": "ip",
+        "address": "127.0.0.53",
+        "protocol": "udp",
+        "port": 53
+      }
+    ],
+    "claude": [
+      {
+        "family": "ip",
+        "address": "160.79.104.10",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "160.79.104.10",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2607:6bc0::10",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2607:6bc0::10",
+        "protocol": "udp",
+        "port": 443
+      }
+    ],
+    "codex": [
+      {
+        "family": "ip",
+        "address": "104.18.32.47",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "104.18.32.47",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "104.18.41.241",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "104.18.41.241",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "172.64.146.15",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "172.64.146.15",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "172.64.155.209",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "172.64.155.209",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2606:4700:4400::6812:29f1",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2606:4700:4400::6812:29f1",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2606:4700:4408::ac40:9bd1",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2606:4700:4408::ac40:9bd1",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2a06:98c1:3101::6812:202f",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2a06:98c1:3101::6812:202f",
+        "protocol": "udp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2a06:98c1:310c::ac40:920f",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip6",
+        "address": "2a06:98c1:310c::ac40:920f",
+        "protocol": "udp",
+        "port": 443
+      }
+    ],
+    "depot": [
+      {
+        "family": "ip",
+        "address": "3.214.109.233",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "3.217.195.51",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "52.203.93.222",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "54.159.63.14",
+        "protocol": "tcp",
+        "port": 443
+      },
+      {
+        "family": "ip",
+        "address": "54.80.94.132",
+        "protocol": "tcp",
+        "port": 443
+      }
+    ]
+  },
+  "harnesses": {
+    "claude": {
+      "groups": [
+        "ma_cld_auth"
+      ],
+      "endpoints": [
+        "dns",
+        "claude"
+      ],
+      "runtime": {
+        "binary": "/home/scott/.local/bin/claude",
+        "packages": "/home/scott/.local/lib/node_modules/@anthropic-ai/claude-code",
+        "configuration": "/etc/mail-agent/harness/claude",
+        "auth": "/home/scott/.claude/.credentials.json"
+      }
+    },
+    "codex": {
+      "groups": [
+        "ma_cdx_auth"
+      ],
+      "endpoints": [
+        "dns",
+        "codex"
+      ],
+      "runtime": {
+        "binary": "/home/scott/.local/bin/codex",
+        "packages": "/home/scott/.codex/packages",
+        "configuration": "/etc/mail-agent/harness/codex",
+        "auth": "/home/scott/.codex/auth.json"
+      }
+    }
+  },
+  "projects": {
+    "research": {
+      "source": "",
+      "shared": "/var/lib/mail-agent-repositories/research",
+      "group": "ma_free",
+      "cache": "/var/cache/mail-agent/free",
+      "endpoints": [],
+      "modes": [
+        "research"
+      ]
+    },
+    "dotfiles": {
+      "source": "/home/scott",
+      "shared": "/home/scott/mail/.agent/repos/home-scott",
+      "group": "ma_dotfiles",
+      "cache": "/var/cache/mail-agent/dotfiles",
+      "endpoints": []
+    },
+    "cloud_foundations": {
+      "source": "/home/scott/code/fluidstack/cloud-foundations",
+      "shared": "/home/scott/mail/.agent/repos/home-scott-code-fluidstack-cloud-foundations",
+      "group": "ma_cloud_foundations",
+      "cache": "/var/cache/mail-agent/cloud_foundations",
+      "endpoints": []
+    },
+    "foundry": {
+      "source": "/home/scott/code/fluidstack/foundry",
+      "shared": "/home/scott/mail/.agent/repos/home-scott-code-fluidstack-foundry",
+      "group": "ma_foundry",
+      "cache": "/var/cache/mail-agent/foundry",
+      "endpoints": [
+        "depot"
+      ]
+    },
+    "network_artifacts": {
+      "source": "/home/scott/code/fluidstack/network-artifacts",
+      "shared": "/home/scott/mail/.agent/repos/home-scott-code-fluidstack-network-artifacts",
+      "group": "ma_network_artifacts",
+      "cache": "/var/cache/mail-agent/network_artifacts",
+      "endpoints": []
+    },
+    "systems": {
+      "source": "/home/scott/code/fluidstack/systems",
+      "shared": "/home/scott/mail/.agent/repos/home-scott-code-fluidstack-systems",
+      "group": "ma_systems",
+      "cache": "/var/cache/mail-agent/systems",
+      "endpoints": [
+        "depot"
+      ]
+    },
+    "landlock": {
+      "source": "/home/scott/code/github/ssmccoy/landlock",
+      "shared": "/home/scott/mail/.agent/repos/home-scott-code-github-ssmccoy-landlock",
+      "group": "ma_landlock",
+      "cache": "/var/cache/mail-agent/landlock",
+      "endpoints": []
+    },
+    "mail_agent": {
+      "source": "/home/scott/code/github/ssmccoy/mail-agent",
+      "shared": "/home/scott/mail/.agent/repos/home-scott-code-github-ssmccoy-mail-agent",
+      "group": "ma_mail_agent",
+      "cache": "/var/cache/mail-agent/mail_agent",
+      "endpoints": []
+    }
+  }
+}

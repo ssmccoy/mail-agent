@@ -1,0 +1,86 @@
+#!/bin/sh
+set -eu
+
+repository=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+launcher=${MAIL_AGENT_TEST_LANDLOCK:-/usr/local/bin/landlock}
+
+[ -x "$launcher" ] || { echo "set MAIL_AGENT_TEST_LANDLOCK to the installed wrapper" >&2; exit 69; }
+fixture=$(mktemp -d "$repository/test/.isolation.XXXXXXXX")
+stage="$fixture/stage"
+
+trap 'rm -rf -- "$fixture"' EXIT
+make -s -C "$repository" install-system DESTDIR="$stage" > "$fixture/install.log"
+work="$fixture/home/work"
+
+mkdir -p "$work/repo" "$fixture/home/shared" "$fixture/cache" \
+    "$fixture/state" "$fixture/scratch" "$fixture/research"
+printf 'private\n' > "$fixture/home/private-secret"
+printf 'checkout\n' > "$work/repo/file"
+printf 'objects\n' > "$fixture/home/shared/file"
+printf '%s\n' "$fixture/home" > "$work/project"
+printf '#!/bin/sh\nexit 0\n' > "$fixture/cache/program"
+chmod 755 "$fixture/cache/program"
+: > "$fixture/auth"
+: > "$fixture/instructions"
+: > "$fixture/toolchain-config"
+
+cd "$work/repo"
+
+for driver in claude codex; do
+    for mode in execute investigate plan research; do
+        env -i HOME="$fixture/home" PATH=/usr/bin:/bin \
+            MAIL_AGENT_LIB="$repository/lib" MAIL_AGENT_BIN="$repository/bin" \
+            MAIL_AGENT_CONFIG="$repository/config" \
+            MAIL_AGENT_PROFILES="$stage/etc/mail-agent/profiles" \
+            MAIL_AGENT_LANDLOCK="$launcher" \
+            MAIL_AGENT_SYSTEM_SHARED="$fixture/home/shared" \
+            MAIL_AGENT_AUTH="$fixture/auth" MAIL_AGENT_EXECUTABLE=/usr/bin/dash \
+            MAIL_AGENT_PACKAGES=/usr/bin MAIL_AGENT_SHARED_STATE="$fixture/state" \
+            MAIL_AGENT_DRIVER_HOME="$fixture/state" \
+            MAIL_AGENT_TOOLCHAIN=/usr MAIL_AGENT_TOOLCHAIN_CONFIG="$fixture/toolchain-config" \
+            MAIL_AGENT_EXEC_PATH=/usr/bin:/bin MAIL_AGENT_GO_CACHE="$fixture/cache" \
+            MAIL_AGENT_GIT_CONFIG="$fixture/instructions" MAIL_AGENT_INSTRUCTIONS="$fixture/instructions" \
+            MAIL_AGENT_TMP="$fixture/scratch" MAIL_AGENT_RESEARCH_TMP="$fixture/research" \
+            "$repository/bin/mail-agent-launch" "$driver" "$mode" "$work" "$fixture/absent" \
+            /bin/sh -eu -c '
+                forbidden=$1
+                shared=$2
+                cache=$3
+                mode=$4
+
+                test "$(cat file)" = checkout
+                test "$(cat "$shared/file")" = objects
+
+                if cat "$forbidden" >/dev/null 2>&1; then
+                    echo "unexpected source-home read" >&2
+                    exit 1
+                fi
+
+                if [ "$mode" = execute ]; then
+                    : > allowed-write
+                    : > "$shared/allowed-write"
+                else
+                    if ( : > denied-write ) 2>/dev/null; then
+                        exit 1
+                    fi
+
+                    if ( : > "$shared/denied-write" ) 2>/dev/null; then
+                        exit 1
+                    fi
+                fi
+
+                if [ "$mode" != research ]; then
+                    cat "$cache/program" >/dev/null
+                    : > "$cache/write"
+                fi
+
+                if "$cache/program" 2>/dev/null; then
+                    echo "unexpected cache execution" >&2
+                    exit 1
+                fi
+            ' probe "$fixture/home/private-secret" "$fixture/home/shared" "$fixture/cache" "$mode"
+        printf 'PASS %s %s: private source denied; checkout and shared access checked; cache execution denied\n' "$driver" "$mode"
+    done
+done
+
+printf 'Strict filesystem smoke tests passed. Service and native harness qualification remain separate.\n'

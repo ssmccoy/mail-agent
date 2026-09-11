@@ -39,7 +39,7 @@ jq -e -f "$library/config.jq" "$configuration" > /dev/null
 
 # Resolve the dedicated slice identities before compiling cgroup expressions.
 : > "$runtime/cgroups.new"
-for slice in mailagent.slice $(jq -r '.policies | keys[] | "mailagent-" + . + ".slice"' "$configuration"); do
+for slice in mailagent.slice $(jq -r '(.networks // .policies) | keys[] | "mailagent-" + . + ".slice"' "$configuration"); do
     group=$(systemctl --system show --value --property=ControlGroup "$slice")
 
     case "$group" in

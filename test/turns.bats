@@ -69,6 +69,7 @@ load helper
     [ "$(mail_count)" -eq 1 ]
     [ "$(jq -r .state "$agent_root/tasks/$session/001/status.json")" = failed ]
     [ "$(grep -c "$work" "$case_root/driver-arguments")" -eq 1 ]
+    mshow -R "$case_root"/outgoing/* | grep -q 'fixture driver failed'
 }
 
 @test "an interrupted task is reported without executing the agent again" {

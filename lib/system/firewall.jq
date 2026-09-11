@@ -1,6 +1,6 @@
 def classifier($level; $path): "socket cgroupv2 level " + ($level|tostring) + " \"" + $path + "\"";
 def rules($direction):
-    .policies | to_entries[] | . as $p |
+    (.networks // .policies) | to_entries[] | . as $p |
     " chain " + $direction + "_" + .key + " {\n" +
     (if .value.mode == "research" then "  accept\n" else
       ([.value.allow[] |
@@ -9,7 +9,7 @@ def rules($direction):
     "  drop\n }";
 def dispatch($direction):
     " chain " + $direction + "_dispatch {\n" +
-    ([.policies | keys[] | "  " + classifier(2; "mailagent.slice/mailagent-" + . + ".slice") +
+    ([(.networks // .policies) | keys[] | "  " + classifier(2; "mailagent.slice/mailagent-" + . + ".slice") +
       " goto " + $direction + "_" + . + "\n"] | join("")) + "  drop\n }";
 "table inet mail_agent {\n" +
 ([rules("out"), rules("in"), dispatch("out"), dispatch("in")] | join("\n")) +

@@ -134,3 +134,22 @@ install-system:
 	test -n "$(DESTDIR)" || rm -f /etc/mail-agent/qualified
 
 .PHONY: install-system
+
+# Declarative deployment tooling. Rendering and checks require no root access.
+# make system-render MANIFEST=system/hosts/superbird.json OUTPUT=/tmp/rendered
+# make system-check MANIFEST=system/hosts/superbird.json PROJECT=foundry
+system-render:
+	@test -n "$(MANIFEST)" -a -n "$(OUTPUT)" || { echo "set MANIFEST and OUTPUT" >&2; exit 64; }
+	MAIL_AGENT_LIB="$(CURDIR)/lib" ./bin/mail-agent-system-config "$(MANIFEST)" "$(OUTPUT)"
+
+system-check:
+	@test -n "$(MANIFEST)" -a -n "$(PROJECT)" || { echo "set MANIFEST and PROJECT" >&2; exit 64; }
+	MAIL_AGENT_LIB="$(CURDIR)/lib" ./bin/mail-agent-system-project check "$(MANIFEST)" "$(PROJECT)"
+
+.PHONY: system-render system-check
+
+# Real kernel smoke tests; requires the installed Landlock wrapper and Landrun.
+test-isolation:
+	./test/isolation
+
+.PHONY: test-isolation

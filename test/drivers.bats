@@ -141,6 +141,23 @@ invoke_driver() {
     done
 }
 
+@test "codex reports a backend failure from its event stream" {
+    prepare_driver
+
+    {
+        printf '%s\n' '{"type":"thread.started","thread_id":"fixture-session"}'
+        printf '%s\n' '{"type":"error","message":"You have hit your usage limit."}'
+        printf '%s\n' '{"type":"turn.failed","error":{"message":"You have hit your usage limit."}}'
+    } > "$case_root/codex.jsonl"
+    printf "1\n" > "$case_root/status"
+
+    run invoke_driver codex execute
+
+    [ "$status" -eq 75 ]
+    grep -Fx "You have hit your usage limit." "$case_root/result/stderr"
+    [ ! -s "$case_root/result/reply.md" ]
+}
+
 @test "a claude reply ending in a fence keeps every line" {
     prepare_driver
 
@@ -413,6 +430,22 @@ invoke_driver() {
     done
 }
 
+@test "system drivers do not grant access to the original source directory" {
+    prepare_driver
+    prepare_worktree
+    printf "%s\n" "$case_home" > "$work/project"
+    child_env+=("MAIL_AGENT_SYSTEM_SHARED=$shared")
+
+    for driver in claude codex pi; do
+        for mode in investigate plan research execute; do
+            invoke_driver "$driver" "$mode"
+
+            grep -Fx "$shared" "$case_root/launcher-arguments"
+            ! grep -Fx "$case_home" "$case_root/launcher-arguments"
+        done
+    done
+}
+
 @test "research prompts identify the writable working area without a shell lookup" {
     prepare_driver
 
@@ -554,4 +587,13 @@ invoke_driver() {
     run invoke "$case_home/bin/mail-agent-state" claude "$work"
 
     [ "$status" -eq 0 ]
+}
+
+@test "codex preserves a successful reply after a recovered stream error" {
+    prepare_driver
+    sed -i '1i{"type":"error","message":"Reconnecting... 1/5"}' "$case_root/codex.jsonl"
+    run invoke_driver codex execute
+
+    [ "$status" -eq 0 ]
+    [ "$(cat "$case_root/result/reply.md")" = "Inspection complete." ]
 }

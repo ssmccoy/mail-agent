@@ -134,14 +134,26 @@ if [ "$status" -eq 124 ]; then
     exit 124
 fi
 
-if [ "$status" -ne 0 ]; then
-    tail -5 "$out/stderr" >&2
-    exit 75
+# A turn codex abandons records its cause in the event stream, not on
+# stderr; surface that so the reply names the reason rather than teardown
+# noise. A crash with no such event falls back to whatever codex left.
+reason=$(jq -rs '(map(select(.type == "turn.failed")) | last | .error.message) // empty' \
+    "$work/events.jsonl" 2>/dev/null)
+
+if [ -z "$reason" ] && { [ "$status" -ne 0 ] || [ ! -s "$last" ]; }; then
+    reason=$(jq -rs '(map(select(.type == "error")) | last | .message) // empty' \
+        "$work/events.jsonl" 2>/dev/null)
 fi
 
-if [ ! -s "$last" ]; then
-    echo "codex wrote no final message" >&2
-    tail -3 "$out/stderr" >&2
+if [ -z "$reason" ] && [ "$status" -eq 0 ] && [ ! -s "$last" ]; then
+    reason="codex wrote no final message"
+fi
+
+if [ -n "$reason" ]; then
+    printf "%s\n" "$reason" > "$out/stderr"
+fi
+
+if [ -n "$reason" ] || [ "$status" -ne 0 ]; then
     exit 75
 fi
 

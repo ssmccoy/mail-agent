@@ -28,7 +28,8 @@ if [ -f /etc/mail-agent/qualified ]; then
     sha256sum --check --status /etc/mail-agent/qualified.hashes || exit 78
 fi
 
-expected="/mailagent.slice/mailagent-$policy.slice/mail-agent-$policy@$session.service"
+network=$(jq -r --arg policy "$policy" '.policies[$policy].network // $policy' /etc/mail-agent/system.json)
+expected="/mailagent.slice/mailagent-$network.slice/mail-agent-$policy@$session.service"
 [ "$(sed -n 's/^0:://p' /proc/self/cgroup)" = "$expected" ] || exit 78
 
 while read -r inode group; do

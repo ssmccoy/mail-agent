@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "dispatcher": "scott",
+  "modes": ["investigate", "plan", "execute", "research"],
+  "runtime": {
+    "git_config": "/etc/mail-agent/git",
+    "instructions": "/etc/mail-agent/instructions.md",
+    "toolchain": "/opt/toolchains",
+    "toolchain_config": "/etc/mail-agent/prototools"
+  },
+  "endpoints": {
+    "dns": [{"family": "ip", "address": "127.0.0.53", "protocol": "udp", "port": 53}],
+    "claude": [{"family": "ip", "address": "192.0.2.1", "protocol": "tcp", "port": 443}],
+    "codex": [{"family": "ip", "address": "198.51.100.1", "protocol": "tcp", "port": 443}],
+    "depot": [{"family": "ip", "address": "203.0.113.1", "protocol": "tcp", "port": 443}]
+  },
+  "harnesses": {
+    "claude": {
+      "groups": ["ma_claude_auth"],
+      "endpoints": ["dns", "claude"],
+      "runtime": {
+        "binary": "/usr/local/bin/claude",
+        "packages": "/opt/node_modules/@anthropic-ai/claude-code",
+        "configuration": "/etc/mail-agent/harness/claude",
+        "auth": "/srv/mail-agent-auth/claude/credentials.json"
+      }
+    },
+    "codex": {
+      "groups": ["ma_codex_auth"],
+      "endpoints": ["dns", "codex"],
+      "runtime": {
+        "binary": "/usr/local/bin/codex",
+        "packages": "/opt/codex",
+        "configuration": "/etc/mail-agent/harness/codex",
+        "auth": "/srv/mail-agent-auth/codex/auth.json"
+      }
+    }
+  },
+  "projects": {
+    "example": {
+      "source": "/srv/source/example",
+      "shared": "/var/lib/mail-agent-repositories/example",
+      "group": "ma_example",
+      "cache": "/var/cache/mail-agent/example",
+      "endpoints": []
+    },
+    "research": {
+      "source": "",
+      "shared": "/var/lib/mail-agent-repositories/research",
+      "group": "ma_research",
+      "cache": "/var/cache/mail-agent/research",
+      "modes": ["research"],
+      "endpoints": []
+    }
+  }
+}

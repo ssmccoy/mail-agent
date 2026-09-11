@@ -1,5 +1,31 @@
 load helper
 
+@test "system configuration renders all modes for seven projects and both harnesses" {
+    jq '.policies.example_codex_execute.runtime.packages = "/opt/node_modules/@vendor/harness" |
+        .policies.example_codex_execute as $template |
+        .policies = ([range(0; 7) as $project |
+            ["codex", "claude"][] as $driver |
+            ["investigate", "plan", "execute", "research"][] as $mode |
+            {key: "p\($project)_\($driver)_\($mode)",
+             value: ($template | .project = "/srv/project\($project)" |
+                 .driver = $driver | .mode = $mode)}] +
+            [["codex", "claude"][] as $driver |
+            {key: "free_\($driver)_research",
+             value: ($template | .project = "" | .driver = $driver |
+                 .mode = "research")}] | from_entries)' \
+        "$project_root/system/system.example.json" > "$case_root/policy.json"
+    run invoke "$case_home/bin/mail-agent-system-config" "$case_root/policy.json" "$case_root/compiled"
+
+    [ "$status" -eq 0 ]
+    [ "$(jq '.policies | length' "$case_root/compiled/system.json")" -eq 58 ]
+
+    for policy in $(jq -r '.policies | keys[]' "$case_root/policy.json"); do
+        [ -f "$case_root/compiled/mail-agent-$policy@.service" ]
+        [ -f "$case_root/compiled/$policy.env" ]
+        [ -f "$case_root/compiled/mailagent-$policy.slice" ]
+    done
+}
+
 @test "system configuration rejects request-controlled policy and invalid endpoints" {
     run jq -e -f "$project_root/lib/system/config.jq" "$project_root/system/system.example.json"
 
@@ -293,4 +319,143 @@ system_dispatch_setup() {
     [ "$(invoke git -C "$case_root/private/$child/work/repo" rev-parse HEAD)" = "$first_commit" ]
     [ "$(jq -r .backend "$agent_root/streams/$child.json")" = system ]
     [ ! -e "$agent_root/work/$child/repo" ]
+}
+
+@test "deployment manifests share network policies across projects harnesses and modes" {
+    jq '.projects.cached = (.projects.example | .source="/srv/source/cached" |
+        .shared="/var/lib/mail-agent-repositories/cached" | .group="ma_cached" |
+        .cache="/var/cache/mail-agent/cached" | .endpoints=["depot"])' \
+        "$project_root/system/manifest.example.json" > "$case_root/manifest.json"
+    run invoke "$case_home/bin/mail-agent-system-config" "$case_root/manifest.json" "$case_root/compiled"
+
+    [ "$status" -eq 0 ]
+    jq -e '(.policies | length) == 18 and (.networks | length) == 5' "$case_root/compiled/system.json"
+
+    for policy in $(jq -r '.policies | keys[]' "$case_root/compiled/system.json"); do
+        network=$(jq -r --arg policy "$policy" '.policies[$policy].network' "$case_root/compiled/system.json")
+        grep -Fx "Slice=mailagent-$network.slice" "$case_root/compiled/mail-agent-$policy@.service"
+        [ -f "$case_root/compiled/mailagent-$network.slice" ]
+        [ ! -f "$case_root/compiled/mailagent-$policy.slice" ]
+    done
+
+    run invoke "$case_home/bin/mail-agent-system-config" "$case_root/manifest.json" "$case_root/repeated"
+
+    [ "$status" -eq 0 ]
+    diff -r "$case_root/compiled" "$case_root/repeated"
+}
+
+@test "deployment manifests reject unresolved references and inconsistent project definitions" {
+    for mutation in '.projects.example.endpoints=["missing"]' \
+        '.projects.example.modes=["unknown"]' \
+        '.harnesses.codex.runtime.auth="relative"' \
+        '.harnesses.codex.runtime.command="/bin/sh"' \
+        '.projects.duplicate=.projects.example' \
+        '.projects.research.modes=["execute"]'; do
+        jq "$mutation" "$project_root/system/manifest.example.json" > "$case_root/manifest.json"
+        run invoke "$case_home/bin/mail-agent-system-config" "$case_root/manifest.json" "$case_root/compiled"
+
+        [ "$status" -ne 0 ]
+        [ ! -e "$case_root/compiled" ]
+    done
+}
+
+project_fixture() {
+    child_env+=("MAIL_AGENT_LIB=$case_home/lib/mail-agent")
+
+    new_repository
+    mkdir -p "$case_root/packages" "$case_root/toolchain" "$case_root/git-config" "$case_root/harness"
+    touch "$case_root/packages/program"
+    chmod 755 "$case_root/packages/program"
+    touch "$case_root/auth.json" "$case_root/instructions" "$case_root/toolchain-config"
+    jq --arg root "$case_root" --arg source "$source_repo" --arg account "$(id -un)" --arg group "$(id -gn)" '
+        .dispatcher=$account | .harnesses |= {codex: .codex} |
+        .harnesses.codex.groups=[$group] |
+        .harnesses.codex.runtime={binary:($root+"/packages/program"),packages:($root+"/packages"),
+            configuration:($root+"/harness"),auth:($root+"/auth.json")} |
+        .runtime={git_config:($root+"/git-config"),instructions:($root+"/instructions"),
+            toolchain:($root+"/toolchain"),toolchain_config:($root+"/toolchain-config")} |
+        .projects={example:{source:$source,shared:($root+"/shared.git"),group:$group,
+            cache:($root+"/cache"),endpoints:[]}}' "$project_root/system/manifest.example.json" > "$case_root/manifest.json"
+}
+
+@test "project checks describe provisioning without modifying repositories or credentials" {
+    project_fixture
+    before=$(sha256sum "$case_root/auth.json")
+    run invoke "$case_home/bin/mail-agent-system-project" check "$case_root/manifest.json" example
+
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | jq -e '.shared_state == "absent" and .files_requiring_copy == 0'
+    [ ! -e "$case_root/shared.git" ]
+    [ ! -e "$case_root/cache" ]
+    [ "$(sha256sum "$case_root/auth.json")" = "$before" ]
+
+    run invoke "$case_home/bin/mail-agent-system-project" check "$case_root/manifest.json" missing
+
+    [ "$status" -ne 0 ]
+}
+
+@test "project provisioning preserves refs and separates source object hardlinks on repeated runs" {
+    project_fixture
+    invoke git clone -q --bare "$source_repo" "$case_root/shared.git"
+    original=$(git -C "$case_root/shared.git" rev-parse HEAD)
+    object=$(find "$case_root/shared.git/objects" -type f -links +1 -print -quit)
+
+    [ -n "$object" ]
+
+    for attempt in first second; do
+        run invoke bash -eu -c '
+            . "$1/lib/system/project.sh"
+            project_traverse() { :; }
+            project_load "$2/manifest.json" example
+            project_check >/dev/null
+            project_backup="$2/backup-$3"
+            mkdir "$project_backup"
+            project_provision
+        ' provision "$project_root" "$case_root" "$attempt"
+
+        [ "$status" -eq 0 ]
+        [ "$(git -C "$case_root/shared.git" rev-parse HEAD)" = "$original" ]
+        [ "$(git -C "$source_repo" rev-parse HEAD)" = "$original" ]
+        [ -z "$(find "$case_root/shared.git" -type f -links +1 -print -quit)" ]
+        [ -f "$case_root/backup-$attempt/shared.git/HEAD" ]
+    done
+}
+
+@test "compiled network assignments cannot broaden a restricted policy" {
+    run invoke "$case_home/bin/mail-agent-system-config" "$project_root/system/manifest.example.json" "$case_root/compiled"
+
+    [ "$status" -eq 0 ]
+    jq '(.policies | to_entries | map(select(.value.mode == "research"))[0].value.network) as $research |
+        .policies.example_cdx_exec.network=$research' "$case_root/compiled/system.json" > "$case_root/invalid.json"
+    run jq -e -f "$project_root/lib/system/config.jq" "$case_root/invalid.json"
+
+    [ "$status" -ne 0 ]
+}
+
+@test "project provisioning refuses an active stream before repository maintenance" {
+    project_fixture
+    mkdir -p "$work" "$agent_root/lock"
+    printf '%s\n' "$source_repo" > "$work/project"
+    exec {lock_fd}>"$agent_root/lock/$session"
+    flock --nonblock "$lock_fd"
+    run invoke bash -eu -c '
+        . "$1/lib/system/project.sh"
+        project_load "$2/manifest.json" example
+        account_home=$3
+        project_lock_streams
+    ' provision "$project_root" "$case_root" "$case_home"
+
+    [ "$status" -eq 75 ]
+    [ ! -e "$case_root/shared.git" ]
+    exec {lock_fd}>&-
+}
+
+@test "project checks reject storage aliases that contain the source" {
+    project_fixture
+    jq --arg cache "$case_root//" '.projects.example.cache=$cache' \
+        "$case_root/manifest.json" > "$case_root/aliased.json"
+    run invoke "$case_home/bin/mail-agent-system-project" check "$case_root/aliased.json" example
+
+    [ "$status" -eq 78 ]
+    [[ "$output" == *"storage contains the source"* ]]
 }

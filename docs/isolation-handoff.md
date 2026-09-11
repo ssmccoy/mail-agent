@@ -14,6 +14,72 @@ any corrections those tests require, and a completed rollout. This document is
 the completion checklist. [Migration] contains the detailed commands and
 [runtime configuration] describes runtime paths.
 
+## Local verification on 2026-09-10
+
+Base revision: `e32d5c64a0b18e3222ae583a182a4eb589f45c02`, with the
+working-tree changes described below. The selected deployment target is this
+host, `superbird`, with dispatcher account `scott`. This record does not
+establish deployment qualification.
+
+- OS: Debian GNU/Linux forky/sid.
+- Kernel after the user upgrade: `7.1.13+deb14-amd64`; cgroup filesystem:
+  `cgroup2fs`.
+- systemd: `262~rc1-2`; after reboot the manager reports `degraded` because
+  `systemd-modules-load.service` fails to load missing NVIDIA modules.
+- nftables: `1.1.7-1`; polkit: `127-3`; Git: `2.55.0`.
+- Landlock wrapper repository revision:
+  `46a730b478af2c29c59921ac76facd359aa90d1e` (installed wrapper contents have
+  not been compared with this revision).
+- Existing `mail-agent-drain.timer`: active.
+- Installed Landrun: `0.1.17`, matching the corrected version requirement.
+  Upstream introduced strict ABI 9 support in [Landrun v0.1.17]. The previous
+  `0.1.18` requirement was an implementation and documentation error;
+  correcting it does not establish kernel ABI support or qualification.
+- Deployment configuration: `/etc/mail-agent/system.json` is absent.
+- `make test-syntax`: passed.
+- `make test-shells`: passed all 118 tests under dash and all 118 under bash
+  POSIX mode.
+
+A strict probe outside the workspace sandbox returned status 0 after the user
+upgraded the host to `7.1.13+deb14-amd64`:
+
+``` sh
+landrun --rox /usr --rox /lib --rox /lib64 -- /usr/bin/true
+```
+
+The earlier probe on `6.18.12+deb14-amd64` returned status 1 because that
+kernel exposed ABI 7. The upgrade resolves that prerequisite failure. This
+small probe verifies strict sandbox setup and command execution; it does not
+qualify the service policies, network filtering, or native harnesses.
+
+## Maintained deployment tooling
+
+Use [Reproducible system deployment] and the checked-in
+`system/hosts/superbird.json` manifest. They replace the temporary deployment
+JSON and provisioning scripts from this session. The manifest selects the seven
+available projects with Claude and Codex in all four modes, plus
+repository-free research. The user excluded fabric-solver, gitops, and
+net-tools because their configured paths are absent. pi remains excluded.
+
+The manifest derives 58 fixed execution authorizations from shared definitions,
+using five network policies. `mail-agent-system-project check` validates one
+project without mutation; `apply` provisions that project with repository and
+ACL backups. Both commands are maintained in the repository. See the deployment
+guide for installation and one command per project.
+
+The user installed the system executables and strict profiles before this
+refactor. Their ownership was verified as root outside the workspace sandbox.
+The maintained-tooling changes require another `make install-system` before
+use. No project provisioning, backend switch, or stream migration has occurred;
+no qualification marker has been created.
+
+The system harness launcher no longer grants the original source directory to
+native harnesses. This prevents the dotfiles project at `/home/scott` from
+granting access to unrelated home files. Trusted repository preparation still
+has source access. The real filesystem smoke tests are maintained as
+`make test-isolation`; passing them does not qualify the outer service, network
+policy, IPC, or native harness behavior.
+
 ## 1. Record the destination and deployment inputs
 
 - [ ] Record the repository revision, target OS, kernel, systemd, nftables,
@@ -21,8 +87,8 @@ the completion checklist. [Migration] contains the detailed commands and
   versions and test results together in the deployment record. No tested
   kernel/systemd compatibility matrix has been produced yet.
 - [ ] Provide cgroup v2 and the interfaces required by the generated units and
-  nftables rules. The installer currently accepts exactly
-  `landrun version 0.1.18`; the design expects strict Landlock ABI 9 support.
+  nftables rules. The qualification command accepts exactly
+  `landrun version 0.1.17`; the design expects strict Landlock ABI 9 support.
   If the host needs another version or cgroup layout, change and test the
   implementation rather than enabling best-effort confinement.
 - [ ] Select the dispatcher account, mail delivery configuration, user manager,
@@ -84,25 +150,26 @@ the completion checklist. [Migration] contains the detailed commands and
 
 **The actual probe scripts still need to be written.**
 `system/probe.example.sh` is an outline that exits 78, not an executable
-acceptance suite. Install a root-owned `/etc/mail-agent/probes/POLICY` for
-every configured policy. The `qualify` command runs these scripts inside the
-real service’s outer Landlock domain and network policy. It does not
-automatically exercise the narrower harness domain or determine whether a
-script returning zero tested everything required.
+acceptance suite. Install a root-owned `/etc/mail-agent/probes/default`, with
+optional `/etc/mail-agent/probes/POLICY` overrides for individual
+authorizations. The `qualify` command runs these scripts inside the real
+service’s outer Landlock domain and network policy. It does not automatically
+exercise the narrower harness domain or determine whether a script returning
+zero tested everything required.
 
 Implement assertions for each applicable row below. Use disposable test streams
 and controlled, reachable test receivers. Record the expected outcome and the
 observed result; a network timeout alone does not prove filtering.
 
-| Area              | Required evidence                                                                                                                                                                                                                                                                                    |
-|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Allowed network   | Successful requests negotiating HTTP/2 and QUIC to approved endpoints; working approved DNS, inference, and project build-cache access.                                                                                                                                                              |
-| Denied network    | Rejected unlisted external, internal, and loopback traffic over IPv4/IPv6 TCP and UDP, including connected/unconnected UDP and socket rebinding. Test both traffic directions and confirm the cgroup classifier applies.                                                                             |
-| Research          | Broad IP access with the real research tool profile; no shell/delegation tools; read-only repository and documentation; writable private history and research files.                                                                                                                                 |
-| Filesystem/IPC    | Execute writes only approved project/state/cache paths. Investigate and plan cannot modify checkout or shared Git metadata, including through Claude. Test denied access to other streams, control records, result exchange, host credentials, devices, Unix sockets, and administrative interfaces. |
-| Cache permissions | Direct execution from shared caches and research storage fails; normal cache reads/writes work. Interpreters can still read files, as accepted in the design.                                                                                                                                        |
-| Native harnesses  | Claude, Codex, and pi use their configured tools, shared credentials, private history, continuation, and older-reply forks. Include a real build/debug session with the existing toolchain. Qualify pi on its own inference host.                                                                    |
-| Export            | Replies, patch mail, attachments, plans, usage, and logs reach the dispatcher through the bounded exchange with correct group permissions; workload content cannot select recipients or repository routing.                                                                                          |
+| Area | Required evidence |
+|----|----|
+| Allowed network | Successful requests negotiating HTTP/2 and QUIC to approved endpoints; working approved DNS, inference, and project build-cache access. |
+| Denied network | Rejected unlisted external, internal, and loopback traffic over IPv4/IPv6 TCP and UDP, including connected/unconnected UDP and socket rebinding. Test both traffic directions and confirm the cgroup classifier applies. |
+| Research | Broad IP access with the real research tool profile; no shell/delegation tools; read-only repository and documentation; writable private history and research files. |
+| Filesystem/IPC | Execute writes only approved project/state/cache paths. Investigate and plan cannot modify checkout or shared Git metadata, including through Claude. Test denied access to other streams, control records, result exchange, host credentials, devices, Unix sockets, and administrative interfaces. |
+| Cache permissions | Direct execution from shared caches and research storage fails; normal cache reads/writes work. Interpreters can still read files, as accepted in the design. |
+| Native harnesses | Claude, Codex, and pi use their configured tools, shared credentials, private history, continuation, and older-reply forks. Include a real build/debug session with the existing toolchain. Qualify pi on its own inference host. |
+| Export | Replies, patch mail, attachments, plans, usage, and logs reach the dispatcher through the bounded exchange with correct group permissions; workload content cannot select recipients or repository routing. |
 
 Some tests require a separate administrator-controlled test runner outside the
 service. **That runner is not supplied by `mail-agent-system-admin qualify`.**
@@ -199,3 +266,5 @@ outside the accepted scope.
 
   [Migration]: migration.md
   [runtime configuration]: runtime.md
+  [Landrun v0.1.17]: https://github.com/Zouuup/landrun/releases/tag/v0.1.17
+  [Reproducible system deployment]: deployment.md
